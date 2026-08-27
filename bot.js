@@ -34,7 +34,10 @@ const client = new Client({
 const historicoConversas = new Map();
 const cronometros = new Map();
 
-client.on('qr', (qr) => { qrcode.generate(qr, { small: true }); });
+client.on('qr', (qr) => { 
+    console.log('🔗 Link para ver o QR Code nítido:');
+    console.log('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr));
+});
 client.on('ready', () => { console.log('✅ Robô RECEPCIONISTA (NUVEM & BLOQUEIO) ATIVO!'); });
 
 client.on('message', async (msg) => {
