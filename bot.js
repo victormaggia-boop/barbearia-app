@@ -1,32 +1,45 @@
+import 'dotenv/config';
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
 import qrcode from 'qrcode-terminal';
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import 'dotenv/config';
 
 global.WebSocket = WebSocket;
 
-// 1. CHAVE DO CHATGPT
+// 1. CONEXÃO COM CHATGPT E SUPABASE (Puxando do Cofre .env)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// 2. CHAVES DO SUPABASE
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const client = new Client({ authStrategy: new LocalAuth(), puppeteer: { args: ['--no-sandbox', '--disable-setuid-sandbox'] } });
+// 2. CONFIGURAÇÃO DO PUPPETEER PARA NUVEM (RAILWAY / LINUX)
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+        ]
+    }
+});
 
 const historicoConversas = new Map();
 const cronometros = new Map();
 
 client.on('qr', (qr) => { qrcode.generate(qr, { small: true }); });
-client.on('ready', () => { console.log('✅ Robô RECEPCIONISTA (COM BLOQUEIO DE AGENDA) ATIVO!'); });
+client.on('ready', () => { console.log('✅ Robô RECEPCIONISTA (NUVEM & BLOQUEIO) ATIVO!'); });
 
 client.on('message', async (msg) => {
     if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
-    // if (!msg.body.toUpperCase().includes('TESTE')) return; // Trava desativada!
 
     console.log(`📩 Cliente disse: ${msg.body}`);
     const numeroCliente = msg.from;
@@ -103,6 +116,7 @@ client.on('message', async (msg) => {
             
             await msg.reply(`Tudo anotado, ${args.nome_cliente}! Só um segundo, estou conferindo a agenda...`);
 
+            // BUSCA INTELIGENTE DE SERVIÇO
             let servico = servicos.find(s => 
                 s.nome.toLowerCase().includes(args.nome_servico.toLowerCase()) || 
                 args.nome_servico.toLowerCase().includes(s.nome.toLowerCase())
@@ -121,21 +135,20 @@ client.on('message', async (msg) => {
             const dataHoraInicio = new Date(`${args.data}T${args.hora}:00-03:00`);
             const dataHoraFim = new Date(dataHoraInicio.getTime() + (servico.duracao_minutos || 30) * 60000);
 
-            // 🛑 A REGRA DO BLOQUEIO: Verifica se já tem alguém marcado nessa exata hora
+            // VERIFICAÇÃO DE HORÁRIO OCUPADO (BLOQUEIO)
             const { data: horarioOcupado } = await supabase
                 .from('agendamentos')
                 .select('id')
                 .eq('data_hora_inicio', dataHoraInicio.toISOString())
-                .eq('status', 'confirmado') // Só barra se o status for confirmado
+                .eq('status', 'confirmado')
                 .limit(1);
 
             if (horarioOcupado && horarioOcupado.length > 0) {
-                // Dá o recibo de erro pra IA avisando que lotou
                 conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro: Horário já ocupado por outro cliente." });
                 return msg.reply(`Ixi, chefe! O horário das *${args.hora}* já está ocupado. 😅\nTem alguma outra hora ou dia que fica bom pra você?`);
             }
 
-            // ATUALIZAÇÃO DO NOME DO CLIENTE
+            // ATUALIZAÇÃO / CRIAÇÃO DE CLIENTE
             const telefoneCliente = numeroCliente.split('@')[0];
             let { data: clienteBanco } = await supabase.from('clientes').select('*').eq('telefone', telefoneCliente).single();
             
@@ -143,11 +156,10 @@ client.on('message', async (msg) => {
                 const { data: novoCliente } = await supabase.from('clientes').insert([{ nome: args.nome_cliente, telefone: telefoneCliente }]).select().single();
                 clienteBanco = novoCliente;
             } else if (clienteBanco.nome !== args.nome_cliente) {
-                // Se for o mesmo número de zap mas com nome diferente, atualiza o cadastro!
                 await supabase.from('clientes').update({ nome: args.nome_cliente }).eq('id', clienteBanco.id);
             }
 
-            // GRAVA O AGENDAMENTO OFICIAL
+            // GRAVAÇÃO DO AGENDAMENTO
             const { error: erroAgendamento } = await supabase.from('agendamentos').insert([{
                 cliente_id: clienteBanco.id,
                 barbeiro_id: barbeiroId,
@@ -176,6 +188,7 @@ client.on('message', async (msg) => {
             console.log(`🤖 Robô: ${mensagemIA.content}`);
         }
 
+        // MEMÓRIA COM TIMER DE 15 MINUTOS
         const timer = setTimeout(() => {
             historicoConversas.delete(numeroCliente);
             cronometros.delete(numeroCliente);
