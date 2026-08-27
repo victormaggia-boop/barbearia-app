@@ -5,6 +5,7 @@ import qrcode from 'qrcode-terminal';
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { execSync } from 'child_process';
 
 global.WebSocket = WebSocket;
 
@@ -18,7 +19,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
+        executablePath: execSync('which chromium').toString().trim(),
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
