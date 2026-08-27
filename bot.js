@@ -5,7 +5,6 @@ import qrcode from 'qrcode-terminal';
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { execSync } from 'child_process';
 
 global.WebSocket = WebSocket;
 
@@ -15,11 +14,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 2. CONFIGURAÇÃO DO PUPPETEER PARA NUVEM (RAILWAY / LINUX)
+// 2. CONFIGURAÇÃO DO PUPPETEER (NAVEGADOR INTERNO + ARGS DE PROTEÇÃO)
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        executablePath: execSync('which chromium').toString().trim(),
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
