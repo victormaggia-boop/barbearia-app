@@ -29,7 +29,7 @@ export default function AdminLogin() {
   }
 
   return (
-    <<div className="min-h-screen bg-[url('/bg-barbearia.png')] bg-cover bg-center bg-fixed bg-black/70 bg-blend-overlay flex flex-col justify-center items-center">
+    <div className="min-h-screen bg-[url('/bg-barbearia.png')] bg-cover bg-center bg-fixed bg-black/70 bg-blend-overlay flex flex-col justify-center items-center">
       <div className="max-w-md w-full bg-barber-dark border border-barber-accent p-8 sm:p-10 rounded-sm shadow-2xl">
         
         <div className="text-center mb-8">
