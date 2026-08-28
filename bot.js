@@ -14,7 +14,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 2. CONFIGURAÇÃO DO PUPPETEER (NAVEGADOR INTERNO + ARGS DE PROTEÇÃO)
+// 2. CONFIGURAÇÃO DO PUPPETEER
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
@@ -38,6 +38,7 @@ client.on('qr', (qr) => {
     console.log('🔗 Link para ver o QR Code nítido:');
     console.log('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr));
 });
+
 client.on('ready', () => { console.log('✅ Robô RECEPCIONISTA (NUVEM & BLOQUEIO) ATIVO!'); });
 
 client.on('message', async (msg) => {
@@ -112,7 +113,7 @@ REGRAS DE AGENDAMENTO E BANCO DE DADOS:
         }];
 
         const respostaIA = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
+            model: "gpt-4o-mini",
             messages: conversaAtual, 
             tools: ferramentas,
             tool_choice: "auto"
@@ -121,80 +122,83 @@ REGRAS DE AGENDAMENTO E BANCO DE DADOS:
         const mensagemIA = respostaIA.choices[0].message;
         conversaAtual.push(mensagemIA);
 
-        if (mensagemIA.tool_calls && mensagemIA.tool_calls[0].function.name === 'agendar_horario') {
-            const toolCallId = mensagemIA.tool_calls[0].id; 
-            const args = JSON.parse(mensagemIA.tool_calls[0].function.arguments);
-            console.log('⚙️ A IA está gravando no banco:', args);
-            
-            await msg.reply(`Tudo anotado, ${args.nome_cliente}! Só um segundo, estou conferindo a agenda...`);
+        // PROCESSAMENTO DE TODAS AS TOOL CALLS
+        if (mensagemIA.tool_calls && mensagemIA.tool_calls.length > 0) {
+            for (const toolCall of mensagemIA.tool_calls) {
+                if (toolCall.function.name === 'agendar_horario') {
+                    const toolCallId = toolCall.id; 
+                    const args = JSON.parse(toolCall.function.arguments);
+                    console.log('⚙️ A IA está gravando no banco:', args);
 
-            // BUSCA INTELIGENTE DE SERVIÇO
-            let servico = servicos.find(s => 
-                s.nome.toLowerCase().includes(args.nome_servico.toLowerCase()) || 
-                args.nome_servico.toLowerCase().includes(s.nome.toLowerCase())
-            );
+                    // BUSCA INTELIGENTE DE SERVIÇO
+                    let servico = servicos.find(s => 
+                        s.nome.toLowerCase().includes(args.nome_servico.toLowerCase()) || 
+                        args.nome_servico.toLowerCase().includes(s.nome.toLowerCase())
+                    );
 
-            if (!servico) {
-                const primeiraPalavraIA = args.nome_servico.split(' ')[0].toLowerCase();
-                servico = servicos.find(s => s.nome.toLowerCase().includes(primeiraPalavraIA));
+                    if (!servico) {
+                        const primeiraPalavraIA = args.nome_servico.split(' ')[0].toLowerCase();
+                        servico = servicos.find(s => s.nome.toLowerCase().includes(primeiraPalavraIA));
+                    }
+
+                    if (!servico) {
+                        conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro: Serviço não encontrado." });
+                        await msg.reply("Putz irmão, não achei esse serviço. É o Cabelo, Barba ou o Combo?");
+                        continue;
+                    }
+
+                    const dataHoraInicio = new Date(`${args.data}T${args.hora}:00-03:00`);
+                    const dataHoraFim = new Date(dataHoraInicio.getTime() + (servico.duracao_minutos || 30) * 60000);
+
+                    // VERIFICAÇÃO DE HORÁRIO OCUPADO (BLOQUEIO)
+                    const { data: horarioOcupado } = await supabase
+                        .from('agendamentos')
+                        .select('id')
+                        .eq('data_hora_inicio', dataHoraInicio.toISOString())
+                        .eq('status', 'confirmado')
+                        .limit(1);
+
+                    if (horarioOcupado && horarioOcupado.length > 0) {
+                        conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro: Horário já ocupado por outro cliente." });
+                        await msg.reply(`Ixi, chefe! O horário das *${args.hora}* já está ocupado. 😅\nTem alguma outra hora ou dia que fica bom pra você?`);
+                        continue;
+                    }
+
+                    // ATUALIZAÇÃO / CRIAÇÃO DE CLIENTE
+                    const telefoneCliente = numeroCliente.split('@')[0];
+                    let { data: clienteBanco } = await supabase.from('clientes').select('*').eq('telefone', telefoneCliente).single();
+                    
+                    if (!clienteBanco) {
+                        const { data: novoCliente } = await supabase.from('clientes').insert([{ nome: args.nome_cliente, telefone: telefoneCliente }]).select().single();
+                        clienteBanco = novoCliente;
+                    } else if (clienteBanco.nome !== args.nome_cliente) {
+                        await supabase.from('clientes').update({ nome: args.nome_cliente }).eq('id', clienteBanco.id);
+                    }
+
+                    // GRAVAÇÃO DO AGENDAMENTO
+                    const { error: erroAgendamento } = await supabase.from('agendamentos').insert([{
+                        cliente_id: clienteBanco.id,
+                        barbeiro_id: barbeiroId,
+                        servico_id: servico.id,
+                        data_hora_inicio: dataHoraInicio.toISOString(),
+                        data_hora_fim: dataHoraFim.toISOString(),
+                        status: 'confirmado'
+                    }]);
+
+                    if (erroAgendamento) {
+                        console.error(erroAgendamento);
+                        conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro ao gravar agendamento." });
+                        await msg.reply("Putz, deu um erro no servidor ao salvar seu agendamento.");
+                    } else {
+                        conversaAtual.push({ 
+                            role: "tool", 
+                            tool_call_id: toolCallId, 
+                            content: "Agendamento gravado com sucesso no banco de dados." 
+                        });
+                        await msg.reply(`Tudo certo, chefe! ✅\nSeu horário para *${servico.nome}* no dia *${dataHoraInicio.toLocaleDateString('pt-BR')}* às *${args.hora}* para o(a) *${args.nome_cliente}* está garantido!`);
+                    }
+                }
             }
-
-            if (!servico) {
-                conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro: Serviço não encontrado." });
-                return msg.reply("Putz irmão, não achei esse serviço. É o Cabelo, Barba ou o Combo?");
-            }
-
-            const dataHoraInicio = new Date(`${args.data}T${args.hora}:00-03:00`);
-            const dataHoraFim = new Date(dataHoraInicio.getTime() + (servico.duracao_minutos || 30) * 60000);
-
-            // VERIFICAÇÃO DE HORÁRIO OCUPADO (BLOQUEIO)
-            const { data: horarioOcupado } = await supabase
-                .from('agendamentos')
-                .select('id')
-                .eq('data_hora_inicio', dataHoraInicio.toISOString())
-                .eq('status', 'confirmado')
-                .limit(1);
-
-            if (horarioOcupado && horarioOcupado.length > 0) {
-                conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro: Horário já ocupado por outro cliente." });
-                return msg.reply(`Ixi, chefe! O horário das *${args.hora}* já está ocupado. 😅\nTem alguma outra hora ou dia que fica bom pra você?`);
-            }
-
-            // ATUALIZAÇÃO / CRIAÇÃO DE CLIENTE
-            const telefoneCliente = numeroCliente.split('@')[0];
-            let { data: clienteBanco } = await supabase.from('clientes').select('*').eq('telefone', telefoneCliente).single();
-            
-            if (!clienteBanco) {
-                const { data: novoCliente } = await supabase.from('clientes').insert([{ nome: args.nome_cliente, telefone: telefoneCliente }]).select().single();
-                clienteBanco = novoCliente;
-            } else if (clienteBanco.nome !== args.nome_cliente) {
-                await supabase.from('clientes').update({ nome: args.nome_cliente }).eq('id', clienteBanco.id);
-            }
-
-            // GRAVAÇÃO DO AGENDAMENTO
-            const { error: erroAgendamento } = await supabase.from('agendamentos').insert([{
-                cliente_id: clienteBanco.id,
-                barbeiro_id: barbeiroId,
-                servico_id: servico.id,
-                data_hora_inicio: dataHoraInicio.toISOString(),
-                data_hora_fim: dataHoraFim.toISOString(),
-                status: 'confirmado'
-            }]);
-
-            if (erroAgendamento) {
-                console.error(erroAgendamento);
-                conversaAtual.push({ role: "tool", tool_call_id: toolCallId, content: "Erro ao gravar." });
-                await msg.reply("Putz, deu um erro no servidor aqui.");
-            } else {
-                await msg.reply(`Tudo certo, chefe! ✅\nSeu horário para *${servico.nome}* no dia *${dataHoraInicio.toLocaleDateString('pt-BR')}* às *${args.hora}* está garantido!`);
-                
-                conversaAtual.push({ 
-                    role: "tool", 
-                    tool_call_id: toolCallId, 
-                    content: "Sucesso." 
-                });
-            }
-
         } else {
             await msg.reply(mensagemIA.content);
             console.log(`🤖 Robô: ${mensagemIA.content}`);
