@@ -262,14 +262,20 @@ export default function AdminDashboard() {
                     <div className="flex items-end gap-2 sm:gap-4 h-56 overflow-x-auto hide-scroll pt-4">
                       {Object.keys(dadosGrafico).sort().map(dia => {
                         const valor = dadosGrafico[dia];
-                        const alturaPerc = (valor / maxFaturamentoDia) * 100;
+                        const alturaPerc = maxFaturamentoDia > 0 ? (valor / maxFaturamentoDia) * 100 : 0;
+                        
                         return (
                           <div key={dia} className="flex flex-col justify-end items-center flex-1 min-w-[40px] group h-full">
-                            <span className="text-[10px] text-barber-accent mb-2 opacity-0 group-hover:opacity-100 transition-opacity">R${valor.toFixed(2)}</span>
-                            <div className="w-full bg-barber-light/80 hover:bg-barber-accent rounded-t-sm transition-all duration-500" style={{ height: `${alturaPerc}%`, minHeight: '4px' }}></div>
+                            <span className="text-[10px] text-barber-accent mb-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              R${valor.toFixed(2)}
+                            </span>
+                            <div 
+                              className="w-full bg-barber-light/80 hover:bg-barber-accent rounded-t-sm transition-all duration-500" 
+                              style={{ height: `${alturaPerc}%`, minHeight: '4px' }}
+                            ></div>
                             <span className="text-[10px] text-neutral-500 mt-2">{dia}</span>
                           </div>
-                        )
+                        );
                       })}
                     </div>
                   )}
