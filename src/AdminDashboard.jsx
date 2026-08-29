@@ -9,6 +9,9 @@ export default function AdminDashboard() {
   const [filtroAgenda, setFiltroAgenda] = useState('hoje'); // hoje, amanha, todos
   const [filtroFinanceiro, setFiltroFinanceiro] = useState('este_mes'); // hoje, este_mes, mes_passado
   
+  // A linha que faltava estava aqui! 👇
+  const [financeiro, setFinanceiro] = useState([]);
+  
   const [agendamentos, setAgendamentos] = useState([]);
   const [transacoes, setTransacoes] = useState([]);
   const [servicos, setServicos] = useState([]);
@@ -263,9 +266,7 @@ export default function AdminDashboard() {
                         const alturaPerc = (valor / maxFaturamentoDia) * 100;
                         return (
                           <div key={dia} className="flex flex-col items-center flex-1 min-w-[40px] group">
-                            {/* Tooltip Hover */}
                             <span className="text-[10px] text-barber-accent mb-2 opacity-0 group-hover:opacity-100 transition-opacity">R${valor}</span>
-                            {/* Barra */}
                             <div className="w-full bg-barber-light/80 hover:bg-barber-accent rounded-t-sm transition-all duration-500" style={{ height: `${alturaPerc}%`, minHeight: '4px' }}></div>
                             <span className="text-[10px] text-neutral-500 mt-2">{dia}</span>
                           </div>
@@ -281,9 +282,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* ================= MODAIS (JANELAS FLUTUANTES) ================= */}
-      
-      {/* Modal Agendamento Manual */}
+      {/* MODAL: Agendamento Manual */}
       {modalAgendamento && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-neutral-900 border border-neutral-700 p-6 rounded-md w-full max-w-md">
@@ -308,7 +307,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Modal Transação (Entrada/Saída) */}
+      {/* MODAL: Transação (Entrada/Saída) */}
       {modalTransacao && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-neutral-900 border border-neutral-700 p-6 rounded-md w-full max-w-md">
