@@ -8,7 +8,6 @@ function App() {
   const [servicoSelecionado, setServicoSelecionado] = useState(null);
   const [barbeiroSelecionado, setBarbeiroSelecionado] = useState(null);
   
-  // Novos estados para a lógica de datas
   const [diasRapidos, setDiasRapidos] = useState([]);
   const [dataSelecionada, setDataSelecionada] = useState('');
   const [mostrarDataFutura, setMostrarDataFutura] = useState(false);
@@ -23,6 +22,13 @@ function App() {
 
   const dataRef = useRef(null);
   const dadosRef = useRef(null);
+  
+  // Refs para a lógica do Clique e Arraste (Desktop)
+  const carrosselRef = useRef(null);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const scrollLeft = useRef(0);
+
   const backgroundImage = "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2074&auto=format&fit=crop";
 
   useEffect(() => {
@@ -37,14 +43,13 @@ function App() {
     }
     carregarDados();
 
-    // GERADOR DE DIAS (Próximos 20 dias úteis, pulando domingo)
     const gerarDias = () => {
       const dias = [];
       let dataAtual = new Date();
       let diasAdicionados = 0;
 
       while (diasAdicionados < 20) {
-        if (dataAtual.getDay() !== 0) { // 0 = Domingo
+        if (dataAtual.getDay() !== 0) {
           const iso = dataAtual.toISOString().split('T')[0];
           const semana = dataAtual.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
           const diaMes = dataAtual.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
@@ -80,6 +85,22 @@ function App() {
     }
     carregarHorariosOcupados();
   }, [dataSelecionada]);
+
+  // --- FUNÇÕES DE CLIQUE E ARRASTE (DESKTOP) ---
+  const handleMouseDown = (e) => {
+    isDragging.current = true;
+    startX.current = e.pageX - carrosselRef.current.offsetLeft;
+    scrollLeft.current = carrosselRef.current.scrollLeft;
+  };
+  const handleMouseLeave = () => { isDragging.current = false; };
+  const handleMouseUp = () => { isDragging.current = false; };
+  const handleMouseMove = (e) => {
+    if (!isDragging.current) return;
+    e.preventDefault();
+    const x = e.pageX - carrosselRef.current.offsetLeft;
+    const walk = (x - startX.current) * 2; // Velocidade do arraste
+    carrosselRef.current.scrollLeft = scrollLeft.current - walk;
+  };
 
   const handleSelecionarServico = (s) => {
     setServicoSelecionado(s);
@@ -130,7 +151,6 @@ function App() {
     }
   }
 
-  // Estilos extras injetados para a barra de rolagem horizontal invisível
   const estiloScroll = `
     .hide-scroll::-webkit-scrollbar { display: none; }
     .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
@@ -170,8 +190,15 @@ function App() {
               <div ref={dataRef} className="pt-6 border-t border-barber-accent/30 animate-fade-in w-full overflow-hidden">
                 <label className="block text-xs sm:text-sm font-serif tracking-widest uppercase text-barber-light/70 mb-4">2. Dia do Atendimento</label>
                 
-                {/* Carrossel de 20 Dias */}
-                <div className="flex overflow-x-auto gap-3 pb-4 hide-scroll snap-x">
+                {/* Carrossel de 20 Dias com Arraste */}
+                <div 
+                  ref={carrosselRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseLeave={handleMouseLeave}
+                  onMouseUp={handleMouseUp}
+                  onMouseMove={handleMouseMove}
+                  className="flex overflow-x-auto gap-3 pb-4 hide-scroll cursor-grab active:cursor-grabbing select-none"
+                >
                   {diasRapidos.map(dia => {
                     const ativo = dataSelecionada === dia.iso && !mostrarDataFutura;
                     return (
@@ -179,7 +206,7 @@ function App() {
                         key={dia.iso}
                         type="button"
                         onClick={() => { setDataSelecionada(dia.iso); setMostrarDataFutura(false); setHorarioSelecionado(''); }}
-                        className={`snap-start flex flex-col items-center justify-center p-3 min-w-[80px] rounded-full border transition-all duration-300 ${ativo ? 'bg-barber-light border-barber-light text-barber-dark scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
+                        className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[80px] rounded-full border transition-all duration-300 ${ativo ? 'bg-barber-light border-barber-light text-barber-dark scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
                       >
                         <span className="text-xs uppercase tracking-widest mb-1">{dia.semana}</span>
                         <span className="text-xl font-bold">{dia.diaMes.split('/')[0]}</span>
@@ -191,20 +218,20 @@ function App() {
                   <button
                     type="button"
                     onClick={() => { setMostrarDataFutura(true); setDataSelecionada(''); setHorarioSelecionado(''); }}
-                    className={`snap-start flex flex-col items-center justify-center p-3 min-w-[90px] rounded-xl border transition-all duration-300 ${mostrarDataFutura ? 'bg-barber-accent border-barber-accent text-barber-light scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
+                    className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[90px] rounded-xl border transition-all duration-300 ${mostrarDataFutura ? 'bg-barber-accent border-barber-accent text-barber-light scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
                   >
                     <span className="text-xl mb-1">📅</span>
                     <span className="text-[10px] uppercase font-bold tracking-wider text-center leading-tight">Data<br/>Futura</span>
                   </button>
                 </div>
 
-                {/* Calendário Livre (Mostrado apenas se Data Futura for selecionada) */}
+                {/* Calendário Livre */}
                 {mostrarDataFutura && (
                   <div className="mt-2 mb-6 animate-fade-in">
-                    <label className="block text-xs text-barber-light/60 mb-2">Selecione a data do seu evento:</label>
+                    <label className="block text-xs text-barber-light/60 mb-2">Selecione a data:</label>
                     <input
                       type="date"
-                      min={new Date().toISOString().split('T')[0]} // Não deixa agendar no passado
+                      min={new Date().toISOString().split('T')[0]} 
                       value={dataSelecionada}
                       onChange={(e) => { setDataSelecionada(e.target.value); setHorarioSelecionado(''); }}
                       className="w-full p-4 bg-black/60 rounded-md border border-barber-accent/60 text-barber-light focus:outline-none focus:border-barber-light transition-colors"
