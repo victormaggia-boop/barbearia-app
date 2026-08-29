@@ -15,6 +15,10 @@ function App() {
   const [horarioSelecionado, setHorarioSelecionado] = useState('');
   const [nomeCliente, setNomeCliente] = useState('');
   const [telefoneCliente, setTelefoneCliente] = useState('');
+  
+  // Estado da Recorrência turbinado
+  const [recorrencia, setRecorrencia] = useState('nenhuma');
+  
   const [status, setStatus] = useState('');
   const [horariosOcupados, setHorariosOcupados] = useState([]);
   
@@ -22,9 +26,8 @@ function App() {
 
   const dataRef = useRef(null);
   const dadosRef = useRef(null);
-  
-  // Refs para a lógica do Clique e Arraste (Desktop)
   const carrosselRef = useRef(null);
+  
   const isDragging = useRef(false);
   const startX = useRef(0);
   const scrollLeft = useRef(0);
@@ -86,7 +89,6 @@ function App() {
     carregarHorariosOcupados();
   }, [dataSelecionada]);
 
-  // --- FUNÇÕES DE CLIQUE E ARRASTE (DESKTOP) ---
   const handleMouseDown = (e) => {
     isDragging.current = true;
     startX.current = e.pageX - carrosselRef.current.offsetLeft;
@@ -98,7 +100,7 @@ function App() {
     if (!isDragging.current) return;
     e.preventDefault();
     const x = e.pageX - carrosselRef.current.offsetLeft;
-    const walk = (x - startX.current) * 2; // Velocidade do arraste
+    const walk = (x - startX.current) * 2;
     carrosselRef.current.scrollLeft = scrollLeft.current - walk;
   };
 
@@ -114,7 +116,7 @@ function App() {
 
   async function handleFinalizarAgendamento(e) {
     e.preventDefault();
-    setStatus('Processando...');
+    setStatus('Gerando agendamentos, aguarde...');
 
     let { data: cliente } = await supabase.from('clientes').select('id').eq('telefone', telefoneCliente).maybeSingle();
     if (!cliente) {
@@ -123,31 +125,84 @@ function App() {
       cliente = novoCliente;
     }
 
-    const dataHoraInicio = new Date(`${dataSelecionada}T${horarioSelecionado}:00-03:00`).toISOString();
-    const dataHoraFim = new Date(new Date(dataHoraInicio).getTime() + (servicoSelecionado?.duracao_minutos || 30) * 60000).toISOString();
+    // Traduz a escolha do cliente em QTD de Cortes e Intervalo de Dias
+    let qtdCortes = 1;
+    let saltoDias = 0;
 
-    const { data: jaExiste } = await supabase.from('agendamentos').select('id').eq('data_hora_inicio', dataHoraInicio).eq('status', 'confirmado').maybeSingle();
-    if (jaExiste) {
-      setStatus('Ops! Esse horário acabou de ser preenchido. Escolha outro por favor.');
-      setHorariosOcupados(prev => [...prev, horarioSelecionado]);
-      setHorarioSelecionado('');
+    switch (recorrencia) {
+      case 'semanal_3m': qtdCortes = 12; saltoDias = 7; break;
+      case 'semanal_6m': qtdCortes = 24; saltoDias = 7; break;
+      case 'quinzenal_3m': qtdCortes = 6; saltoDias = 14; break;
+      case 'quinzenal_6m': qtdCortes = 12; saltoDias = 14; break;
+      case 'mensal_3m': qtdCortes = 3; saltoDias = 28; break; // 4 semanas (mantém o dia da semana)
+      case 'mensal_6m': qtdCortes = 6; saltoDias = 28; break;
+      default: qtdCortes = 1; saltoDias = 0; break;
+    }
+
+    const agendamentosParaInserir = [];
+    const baseDate = new Date(`${dataSelecionada}T${horarioSelecionado}:00-03:00`);
+    const duracao = servicoSelecionado?.duracao_minutos || 30;
+
+    // Gera as datas calculando os saltos (7, 14 ou 28 dias)
+    for (let i = 0; i < qtdCortes; i++) {
+      const currentDate = new Date(baseDate.getTime());
+      currentDate.setDate(currentDate.getDate() + (i * saltoDias));
+      
+      const inicioIso = currentDate.toISOString();
+      const fimIso = new Date(currentDate.getTime() + duracao * 60000).toISOString();
+
+      agendamentosParaInserir.push({
+        cliente_id: cliente.id,
+        barbeiro_id: barbeiroSelecionado,
+        servico_id: servicoSelecionado.id,
+        data_hora_inicio: inicioIso,
+        data_hora_fim: fimIso,
+        status: 'confirmado'
+      });
+    }
+
+    // Busca conflitos no banco
+    const minDate = agendamentosParaInserir[0].data_hora_inicio;
+    const maxDate = agendamentosParaInserir[agendamentosParaInserir.length - 1].data_hora_fim;
+    
+    const { data: jaAgendados } = await supabase
+      .from('agendamentos')
+      .select('data_hora_inicio')
+      .eq('status', 'confirmado')
+      .gte('data_hora_inicio', minDate)
+      .lte('data_hora_inicio', maxDate)
+      .eq('barbeiro_id', barbeiroSelecionado);
+
+    const occupiedTimes = jaAgendados ? jaAgendados.map(a => a.data_hora_inicio) : [];
+    const conflitos = [];
+    
+    const agendamentosFinais = agendamentosParaInserir.filter(ag => {
+      if (occupiedTimes.includes(ag.data_hora_inicio)) {
+        conflitos.push(ag.data_hora_inicio);
+        return false;
+      }
+      return true;
+    });
+
+    if (agendamentosFinais.length === 0) {
+      setStatus('Ops! Todos esses horários já estão ocupados no sistema.');
       return;
     }
 
-    const { error: errAgendamento } = await supabase.from('agendamentos').insert([{
-      cliente_id: cliente.id,
-      barbeiro_id: barbeiroSelecionado,
-      servico_id: servicoSelecionado.id,
-      data_hora_inicio: dataHoraInicio,
-      data_hora_fim: dataHoraFim,
-      status: 'confirmado'
-    }]);
+    // Dispara pro Banco
+    const { error: errAgendamento } = await supabase.from('agendamentos').insert(agendamentosFinais);
 
-    if (errAgendamento) setStatus('Erro ao agendar.');
-    else {
-      setStatus('Agendamento realizado com sucesso!');
+    if (errAgendamento) {
+      setStatus('Erro ao processar pacote de agendamentos.');
+    } else {
+      if (conflitos.length > 0) {
+        setStatus(`Agendamento realizado! Reservamos ${agendamentosFinais.length} datas com sucesso. Observação: ${conflitos.length} datas no futuro já estavam ocupadas e foram puladas.`);
+      } else {
+        setStatus(`Pacote ativado com sucesso! Garantiu ${agendamentosFinais.length} atendimento(s) na agenda.`);
+      }
       setHorariosOcupados(prev => [...prev, horarioSelecionado]);
       setHorarioSelecionado('');
+      setRecorrencia('nenhuma');
     }
   }
 
@@ -185,62 +240,35 @@ function App() {
               </div>
             </div>
 
-            {/* 2. DATA (CARROSSEL + EVENTOS FUTUROS) E HORÁRIO */}
+            {/* 2. DATA E HORÁRIO */}
             {servicoSelecionado && (
               <div ref={dataRef} className="pt-6 border-t border-barber-accent/30 animate-fade-in w-full overflow-hidden">
                 <label className="block text-xs sm:text-sm font-serif tracking-widest uppercase text-barber-light/70 mb-4">2. Dia do Atendimento</label>
                 
-                {/* Carrossel de 20 Dias com Arraste */}
-                <div 
-                  ref={carrosselRef}
-                  onMouseDown={handleMouseDown}
-                  onMouseLeave={handleMouseLeave}
-                  onMouseUp={handleMouseUp}
-                  onMouseMove={handleMouseMove}
-                  className="flex overflow-x-auto gap-3 pb-4 hide-scroll cursor-grab active:cursor-grabbing select-none"
-                >
+                <div ref={carrosselRef} onMouseDown={handleMouseDown} onMouseLeave={handleMouseLeave} onMouseUp={handleMouseUp} onMouseMove={handleMouseMove} className="flex overflow-x-auto gap-3 pb-4 hide-scroll cursor-grab active:cursor-grabbing select-none">
                   {diasRapidos.map(dia => {
                     const ativo = dataSelecionada === dia.iso && !mostrarDataFutura;
                     return (
-                      <button
-                        key={dia.iso}
-                        type="button"
-                        onClick={() => { setDataSelecionada(dia.iso); setMostrarDataFutura(false); setHorarioSelecionado(''); }}
-                        className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[80px] rounded-full border transition-all duration-300 ${ativo ? 'bg-barber-light border-barber-light text-barber-dark scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
-                      >
+                      <button key={dia.iso} type="button" onClick={() => { setDataSelecionada(dia.iso); setMostrarDataFutura(false); setHorarioSelecionado(''); }} className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[80px] rounded-full border transition-all duration-300 ${ativo ? 'bg-barber-light border-barber-light text-barber-dark scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}>
                         <span className="text-xs uppercase tracking-widest mb-1">{dia.semana}</span>
                         <span className="text-xl font-bold">{dia.diaMes.split('/')[0]}</span>
                       </button>
                     )
                   })}
                   
-                  {/* Botão Data Futura */}
-                  <button
-                    type="button"
-                    onClick={() => { setMostrarDataFutura(true); setDataSelecionada(''); setHorarioSelecionado(''); }}
-                    className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[90px] rounded-xl border transition-all duration-300 ${mostrarDataFutura ? 'bg-barber-accent border-barber-accent text-barber-light scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}
-                  >
+                  <button type="button" onClick={() => { setMostrarDataFutura(true); setDataSelecionada(''); setHorarioSelecionado(''); }} className={`flex-shrink-0 flex flex-col items-center justify-center p-3 min-w-[90px] rounded-xl border transition-all duration-300 ${mostrarDataFutura ? 'bg-barber-accent border-barber-accent text-barber-light scale-105' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/20'}`}>
                     <span className="text-xl mb-1">📅</span>
                     <span className="text-[10px] uppercase font-bold tracking-wider text-center leading-tight">Data<br/>Futura</span>
                   </button>
                 </div>
 
-                {/* Calendário Livre */}
                 {mostrarDataFutura && (
                   <div className="mt-2 mb-6 animate-fade-in">
-                    <label className="block text-xs text-barber-light/60 mb-2">Selecione a data:</label>
-                    <input
-                      type="date"
-                      min={new Date().toISOString().split('T')[0]} 
-                      value={dataSelecionada}
-                      onChange={(e) => { setDataSelecionada(e.target.value); setHorarioSelecionado(''); }}
-                      className="w-full p-4 bg-black/60 rounded-md border border-barber-accent/60 text-barber-light focus:outline-none focus:border-barber-light transition-colors"
-                      style={{ colorScheme: 'dark' }}
-                    />
+                    <label className="block text-xs text-barber-light/60 mb-2">Selecione a data do seu evento:</label>
+                    <input type="date" min={new Date().toISOString().split('T')[0]} value={dataSelecionada} onChange={(e) => { setDataSelecionada(e.target.value); setHorarioSelecionado(''); }} className="w-full p-4 bg-black/60 rounded-md border border-barber-accent/60 text-barber-light focus:outline-none focus:border-barber-light transition-colors" style={{ colorScheme: 'dark' }} />
                   </div>
                 )}
 
-                {/* Grade de Horários */}
                 {dataSelecionada && (
                   <div className="mt-6 animate-fade-in">
                     <label className="block text-xs sm:text-sm font-serif tracking-widest uppercase text-barber-light/70 mb-4">Horários Disponíveis</label>
@@ -248,13 +276,7 @@ function App() {
                       {todosHorarios.map((hora) => {
                         const isOcupado = horariosOcupados.includes(hora);
                         return (
-                          <button
-                            key={hora}
-                            type="button"
-                            disabled={isOcupado}
-                            onClick={() => handleSelecionarHorario(hora)}
-                            className={`p-3 rounded-md text-sm font-serif transition-all border ${isOcupado ? 'bg-red-950/40 border-red-900/30 text-red-500/40 cursor-not-allowed line-through' : horarioSelecionado === hora ? 'bg-barber-light border-barber-light text-barber-dark font-bold scale-105 shadow-md' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/30'}`}
-                          >
+                          <button key={hora} type="button" disabled={isOcupado} onClick={() => handleSelecionarHorario(hora)} className={`p-3 rounded-md text-sm font-serif transition-all border ${isOcupado ? 'bg-red-950/40 border-red-900/30 text-red-500/40 cursor-not-allowed line-through' : horarioSelecionado === hora ? 'bg-barber-light border-barber-light text-barber-dark font-bold scale-105 shadow-md' : 'bg-black/40 border-barber-accent/40 text-barber-light hover:bg-barber-accent/30'}`}>
                             {hora}
                           </button>
                         );
@@ -265,14 +287,39 @@ function App() {
               </div>
             )}
 
-            {/* 3. DADOS FINAIS */}
+            {/* 3. DADOS FINAIS & MÚLTIPLAS RECORRÊNCIAS */}
             {horarioSelecionado && (
               <div ref={dadosRef} className="pt-6 border-t border-barber-accent/30 animate-fade-in">
-                <label className="block text-xs sm:text-sm font-serif tracking-widest uppercase text-barber-light/70 mb-4">3. Seus Dados</label>
+                <label className="block text-xs sm:text-sm font-serif tracking-widest uppercase text-barber-light/70 mb-4">3. Seus Dados & Pacotes</label>
+                
                 <div className="space-y-4">
                   <input type="text" placeholder="Nome Completo" required value={nomeCliente} onChange={(e) => setNomeCliente(e.target.value)} className="w-full p-4 bg-black/40 rounded-md border border-barber-accent/40 text-barber-light focus:outline-none focus:border-barber-light transition-colors" />
                   <input type="tel" placeholder="WhatsApp (ex: 13999999999)" required value={telefoneCliente} onChange={(e) => setTelefoneCliente(e.target.value)} className="w-full p-4 bg-black/40 rounded-md border border-barber-accent/40 text-barber-light focus:outline-none focus:border-barber-light transition-colors" />
+                  
+                  {/* Super Dropdown de Frequência */}
+                  <div className="pt-2">
+                    <label className="block text-xs font-serif tracking-widest uppercase text-barber-accent mb-2">Frequência (Plano de Assinatura)</label>
+                    <select value={recorrencia} onChange={(e) => setRecorrencia(e.target.value)} className="w-full p-4 bg-black/40 rounded-md border border-barber-accent/40 text-barber-light focus:outline-none focus:border-barber-light transition-colors" style={{ colorScheme: 'dark' }}>
+                      <option value="nenhuma">Agendar apenas 1 vez (Neste dia)</option>
+                      
+                      <optgroup label="Toda Semana">
+                        <option value="semanal_3m">Toda semana - Pacote 3 Meses (12 cortes)</option>
+                        <option value="semanal_6m">Toda semana - Pacote 6 Meses (24 cortes)</option>
+                      </optgroup>
+                      
+                      <optgroup label="A Cada 15 Dias">
+                        <option value="quinzenal_3m">De 15 em 15 dias - Pacote 3 Meses (6 cortes)</option>
+                        <option value="quinzenal_6m">De 15 em 15 dias - Pacote 6 Meses (12 cortes)</option>
+                      </optgroup>
+                      
+                      <optgroup label="1 Vez por Mês (A cada 4 Semanas)">
+                        <option value="mensal_3m">1 vez por mês - Pacote 3 Meses (3 cortes)</option>
+                        <option value="mensal_6m">1 vez por mês - Pacote 6 Meses (6 cortes)</option>
+                      </optgroup>
+                    </select>
+                  </div>
                 </div>
+
                 <button type="submit" className="w-full py-4 mt-8 rounded-md bg-barber-accent hover:bg-barber-light hover:text-barber-dark text-barber-light font-serif tracking-widest uppercase transition-all duration-300 shadow-lg">Confirmar Agendamento</button>
               </div>
             )}
