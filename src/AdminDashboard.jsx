@@ -21,10 +21,12 @@ export default function AdminDashboard() {
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
   const [modalEquipe, setModalEquipe] = useState(false);
+  const [modalServico, setModalServico] = useState(false); // Modal de Serviços
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' });
+  const [formNovoServico, setFormNovoServico] = useState({ nome: '', preco: '', duracao_minutos: '30' }); // Formulário de Serviços
 
   useEffect(() => {
     async function inicializarSistema() {
@@ -63,7 +65,10 @@ export default function AdminDashboard() {
   useEffect(() => { if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); }, [filtroFinanceiro, perfilUsuario]);
 
   async function carregarDadosBase() {
-    const { data } = await supabase.from('servicos').select('*').eq('empresa_id', perfilUsuario.empresa_id).eq('ativo', true);
+    const { data } = await supabase.from('servicos')
+      .select('*')
+      .eq('empresa_id', perfilUsuario.empresa_id)
+      .order('nome', { ascending: true });
     if (data) setServicos(data);
   }
 
@@ -177,7 +182,6 @@ export default function AdminDashboard() {
 
     if (error) {
       alert("Erro do Banco de Dados: " + error.message);
-      console.error(error);
     } else {
       setModalEquipe(false);
       setFormNovaEquipe({ nome: '', telefone: '' });
@@ -185,14 +189,38 @@ export default function AdminDashboard() {
     }
   }
 
+  // Função para cadastrar novo serviço
+  async function salvarServico(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('servicos').insert([{
+      nome: formNovoServico.nome,
+      preco: Number(formNovoServico.preco),
+      duracao_minutos: Number(formNovoServico.duracao_minutos),
+      empresa_id: perfilUsuario.empresa_id,
+      ativo: true
+    }]);
+
+    if (error) {
+      alert("Erro ao cadastrar serviço: " + error.message);
+    } else {
+      setModalServico(false);
+      setFormNovoServico({ nome: '', preco: '', duracao_minutos: '30' });
+      carregarDadosBase();
+    }
+  }
+
+  // Função para ativar/desativar serviço
+  async function toggleStatusServico(id, statusAtual) {
+    await supabase.from('servicos').update({ ativo: !statusAtual }).eq('id', id);
+    carregarDadosBase();
+  }
+
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
 
-  // Função do WhatsApp Semi-Automático
   function enviarWhatsApp(ag) {
     const telefone = ag.clientes?.telefone || '';
     if (!telefone) return alert("Cliente sem telefone cadastrado.");
 
-    // Limpa o número e garante o código 55 (Brasil)
     const numeroLimpo = telefone.replace(/\D/g, '');
     const numeroFinal = numeroLimpo.startsWith('55') ? numeroLimpo : `55${numeroLimpo}`;
 
@@ -281,8 +309,9 @@ export default function AdminDashboard() {
             
             {perfilUsuario?.cargo === 'dono' && (
               <>
-                <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
+                <button onClick={() => setAbaAtiva('servicos')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'servicos' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Serviços</button>
                 <button onClick={() => setAbaAtiva('equipe')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'equipe' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Equipe</button>
+                <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
               </>
             )}
           </div>
@@ -300,12 +329,16 @@ export default function AdminDashboard() {
             <div>
               <div className="font-mono text-[11px] tracking-[.14em] uppercase text-[var(--brass)] mb-2">Painel de Gestão</div>
               <h1 className="font-fraunces font-extrabold text-[28px] m-0 tracking-[-.01em]">
-                {abaAtiva === 'agenda' ? 'Sua Agenda' : abaAtiva === 'financeiro' ? 'Relatório Financeiro' : 'Sua Equipe'}
+                {abaAtiva === 'agenda' ? 'Sua Agenda' : abaAtiva === 'servicos' ? 'Catálogo de Serviços' : abaAtiva === 'financeiro' ? 'Relatório Financeiro' : 'Sua Equipe'}
               </h1>
             </div>
             
             <div className="w-full sm:w-auto text-right flex gap-2">
-              {abaAtiva === 'equipe' ? (
+              {abaAtiva === 'servicos' ? (
+                <button onClick={() => setModalServico(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                  + Novo Serviço
+                </button>
+              ) : abaAtiva === 'equipe' ? (
                 <button onClick={() => setModalEquipe(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
                   + Novo Profissional
                 </button>
@@ -416,6 +449,40 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              {/* ABA: SERVIÇOS (Protegida) */}
+              {abaAtiva === 'servicos' && perfilUsuario?.cargo === 'dono' && (
+                <div className="animate-fade-in max-w-4xl">
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
+                    <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
+                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Serviços Oferecidos</span>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]">
+                        <span className="text-[var(--brass-bright)] font-bold">{servicos.length}</span> Serviços no total
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      {servicos.map(s => (
+                        <div key={s.id} className={`flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border ${s.ativo ? 'border-[var(--line)]' : 'border-red-900/40 opacity-60'}`}>
+                          <div>
+                            <div className="text-[14px] font-semibold text-[var(--paper)]">{s.nome}</div>
+                            <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">Duração: {s.duracao_minutos} min</div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="font-mono text-[15px] font-bold text-[var(--brass-bright)]">R$ {Number(s.preco).toFixed(2)}</div>
+                            <button 
+                              onClick={() => toggleStatusServico(s.id, s.ativo)}
+                              className={`text-[10px] font-bold py-1.5 px-3 rounded-md uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)] hover:bg-red-900/30 hover:text-red-400 hover:border-red-500/30' : 'bg-red-900/20 text-red-400 border border-red-500/30 hover:bg-[rgba(127,168,107,0.2)] hover:text-[var(--green)]'}`}
+                            >
+                              {s.ativo ? 'Ativo' : 'Inativo'}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ABA: EQUIPE (Protegida) */}
               {abaAtiva === 'equipe' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
@@ -498,8 +565,39 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAIS AQUI EMBAIXO */}
+        {/* MODAIS */}
 
+        {/* MODAL: Novo Serviço */}
+        {modalServico && perfilUsuario?.cargo === 'dono' && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
+              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Novo Serviço</h2>
+              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Insira os detalhes do serviço</div>
+              <form onSubmit={salvarServico} className="space-y-3">
+                <input type="text" placeholder="Nome do Serviço (ex: Corte + Barba)" required value={formNovoServico.nome} onChange={e => setFormNovoServico({...formNovoServico, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                
+                <div className="flex gap-3">
+                  <input type="number" step="0.01" placeholder="Preço (R$)" required value={formNovoServico.preco} onChange={e => setFormNovoServico({...formNovoServico, preco: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                  
+                  <select required value={formNovoServico.duracao_minutos} onChange={e => setFormNovoServico({...formNovoServico, duracao_minutos: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">60 min (1h)</option>
+                    <option value="90">90 min (1h30)</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setModalServico(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Salvar Serviço</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: Detalhes Financeiros */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -542,6 +640,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL: Agendamento Manual */}
         {modalAgendamento && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
@@ -558,7 +657,7 @@ export default function AdminDashboard() {
 
                 <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, servico_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
                   <option value="">Qual o Serviço?</option>
-                  {servicos.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
+                  {servicos.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
                 </select>
                 
                 <div className="flex gap-3">
@@ -574,6 +673,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL: Novo Profissional */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
@@ -591,6 +691,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL: Transação */}
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
