@@ -31,15 +31,19 @@ export default function SuperAdmin() {
 
   async function carregarEmpresas() {
     setLoading(true);
-    // Busca todas as empresas cadastradas, da mais nova para a mais velha
-    const { data } = await supabase.from('empresas').select('*').order('created_at', { ascending: false });
-    if (data) setEmpresas(data);
+    
+    // Tiramos o "order" para evitar erros caso a coluna não exista, 
+    // e adicionamos um alerta para o sistema "gritar" se o Supabase bloquear algo.
+    const { data, error } = await supabase.from('empresas').select('*');
+    
+    if (error) {
+      alert("Erro ao buscar barbearias: " + error.message);
+    } else if (data) {
+      setEmpresas(data);
+    }
+    
     setLoading(false);
   }
-
-  async function renovarAssinatura(id, nome) {
-    const confirmar = window.confirm(`Deseja adicionar +30 dias de acesso para a barbearia "${nome}"?`);
-    if (!confirmar) return;
 
     // Calcula a data de hoje + 30 dias
     const novaData = new Date();
