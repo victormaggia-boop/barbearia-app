@@ -6,6 +6,9 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   
   const [perfilUsuario, setPerfilUsuario] = useState(null);
+  const [dadosEmpresa, setDadosEmpresa] = useState(null);
+  const [contaBloqueada, setContaBloqueada] = useState(false);
+
   const [abaAtiva, setAbaAtiva] = useState('agenda');
   const [filtroAgenda, setFiltroAgenda] = useState('hoje');
   const [filtroFinanceiro, setFiltroFinanceiro] = useState('este_mes');
@@ -47,6 +50,17 @@ export default function AdminDashboard() {
 
       if (perfil) {
         setPerfilUsuario(perfil);
+        
+        // NOVO: Busca dados da empresa para verificar o Trial
+        const { data: empresa } = await supabase.from('empresas').select('*').eq('id', perfil.empresa_id).single();
+        if (empresa) {
+          setDadosEmpresa(empresa);
+          const hoje = new Date();
+          const limite = new Date(empresa.trial_ate);
+          if (hoje > limite) {
+            setContaBloqueada(true);
+          }
+        }
       } else {
         alert("Erro: Seu usuário não está vinculado a uma empresa.");
         await supabase.auth.signOut();
@@ -57,25 +71,20 @@ export default function AdminDashboard() {
   }, [navigate]);
 
   useEffect(() => { 
-    if (perfilUsuario) {
+    if (perfilUsuario && !contaBloqueada) {
       carregarDadosBase();
       carregarEquipe();
     }
-  }, [perfilUsuario]);
+  }, [perfilUsuario, contaBloqueada]);
   
-  useEffect(() => { if (perfilUsuario) carregarAgenda(); }, [filtroAgenda, perfilUsuario]);
-  useEffect(() => { if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); }, [filtroFinanceiro, perfilUsuario]);
+  useEffect(() => { if (perfilUsuario && !contaBloqueada) carregarAgenda(); }, [filtroAgenda, perfilUsuario, contaBloqueada]);
+  useEffect(() => { if (perfilUsuario && perfilUsuario.cargo === 'dono' && !contaBloqueada) carregarFinanceiro(); }, [filtroFinanceiro, perfilUsuario, contaBloqueada]);
 
   async function carregarDadosBase() {
-    const { data: servs } = await supabase.from('servicos')
-      .select('*')
-      .eq('empresa_id', perfilUsuario.empresa_id)
-      .order('nome', { ascending: true });
+    const { data: servs } = await supabase.from('servicos').select('*').eq('empresa_id', perfilUsuario.empresa_id).order('nome', { ascending: true });
     if (servs) setServicos(servs);
 
-    const { data: durac } = await supabase.from('barbeiro_servicos')
-      .select('*')
-      .eq('empresa_id', perfilUsuario.empresa_id);
+    const { data: durac } = await supabase.from('barbeiro_servicos').select('*').eq('empresa_id', perfilUsuario.empresa_id);
     if (durac) setDuracoesEquipe(durac);
   }
 
@@ -128,9 +137,7 @@ export default function AdminDashboard() {
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
       
-    const { data: transacs } = await supabase.from('transacoes').select('*')
-      .eq('empresa_id', perfilUsuario.empresa_id)
-      .gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString());
+    const { data: transacs } = await supabase.from('transacoes').select('*').eq('empresa_id', perfilUsuario.empresa_id).gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString());
 
     setFinanceiro(cortes || []);
     setTransacoes(transacs || []);
@@ -142,7 +149,6 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
-  // --- FUNÇÕES DE EQUIPE ---
   function abrirModalCriarEquipe() {
     setMembroEditandoId(null);
     setFormEquipe({ nome: '', telefone: '', email: '' });
@@ -151,52 +157,29 @@ export default function AdminDashboard() {
 
   function abrirModalEditarEquipe(membro) {
     setMembroEditandoId(membro.id);
-    setFormEquipe({
-      nome: membro.nome || '',
-      telefone: membro.telefone || '',
-      email: membro.email || ''
-    });
+    setFormEquipe({ nome: membro.nome || '', telefone: membro.telefone || '', email: membro.email || '' });
     setModalEquipe(true);
   }
 
   async function salvarProfissional(e) {
     e.preventDefault();
-    const dados = {
-      nome: formEquipe.nome,
-      telefone: formEquipe.telefone,
-      email: formEquipe.email ? formEquipe.email.trim().toLowerCase() : null,
-      empresa_id: perfilUsuario.empresa_id,
-      cargo: 'profissional'
-    };
-
+    const dados = { nome: formEquipe.nome, telefone: formEquipe.telefone, email: formEquipe.email ? formEquipe.email.trim().toLowerCase() : null, empresa_id: perfilUsuario.empresa_id, cargo: 'profissional' };
     if (membroEditandoId) {
-      const { error } = await supabase.from('barbeiros').update(dados).eq('id', membroEditandoId);
-      if (error) alert("Erro ao atualizar profissional: " + error.message);
+      await supabase.from('barbeiros').update(dados).eq('id', membroEditandoId);
     } else {
-      const { error } = await supabase.from('barbeiros').insert([dados]);
-      if (error) alert("Erro ao adicionar profissional: " + error.message);
+      await supabase.from('barbeiros').insert([dados]);
     }
-
     setModalEquipe(false);
     carregarEquipe();
   }
 
-  // NOVA FUNÇÃO: Excluir Profissional da Equipe
   async function excluirProfissional(id, nome) {
-    const confirmar = window.confirm(`ATENÇÃO: Tem certeza que deseja remover o profissional "${nome}" da sua equipe?`);
+    const confirmar = window.confirm(`ATENÇÃO: Tem certeza que deseja remover "${nome}"?`);
     if (!confirmar) return;
-
-    const { error } = await supabase.from('barbeiros').delete().eq('id', id);
-    
-    if (error) {
-      alert("Erro ao excluir: " + error.message + " (Dica: Se ele tiver agendamentos no histórico, o sistema bloqueia para não perder suas finanças.)");
-    } else {
-      alert("Profissional removido com sucesso!");
-      carregarEquipe();
-    }
+    await supabase.from('barbeiros').delete().eq('id', id);
+    carregarEquipe();
   }
 
-  // --- FUNÇÕES DE SERVIÇOS ---
   function abrirModalCriarServico() {
     setServicoEditandoId(null);
     setFormServico({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
@@ -208,13 +191,7 @@ export default function AdminDashboard() {
 
   function abrirModalEditarServico(servico) {
     setServicoEditandoId(servico.id);
-    setFormServico({
-      nome: servico.nome,
-      preco: servico.preco,
-      preco_promocional: servico.preco_promocional || '',
-      duracao_minutos: servico.duracao_minutos || 30
-    });
-
+    setFormServico({ nome: servico.nome, preco: servico.preco, preco_promocional: servico.preco_promocional || '', duracao_minutos: servico.duracao_minutos || 30 });
     const temposAtuais = {};
     equipe.forEach(p => {
       const encontrado = duracoesEquipe.find(d => d.servico_id === servico.id && d.barbeiro_id === p.id);
@@ -226,36 +203,19 @@ export default function AdminDashboard() {
 
   async function salvarServico(e) {
     e.preventDefault();
-    const dadosServico = {
-      nome: formServico.nome,
-      preco: Number(formServico.preco),
-      preco_promocional: formServico.preco_promocional ? Number(formServico.preco_promocional) : null,
-      duracao_minutos: Number(formServico.duracao_minutos),
-      empresa_id: perfilUsuario.empresa_id,
-      ativo: true
-    };
-
+    const dadosServico = { nome: formServico.nome, preco: Number(formServico.preco), preco_promocional: formServico.preco_promocional ? Number(formServico.preco_promocional) : null, duracao_minutos: Number(formServico.duracao_minutos), empresa_id: perfilUsuario.empresa_id, ativo: true };
     let servicoId = servicoEditandoId;
 
     if (servicoEditandoId) {
-      const { error } = await supabase.from('servicos').update(dadosServico).eq('id', servicoEditandoId);
-      if (error) return alert("Erro ao atualizar serviço: " + error.message);
+      await supabase.from('servicos').update(dadosServico).eq('id', servicoEditandoId);
     } else {
-      const { data: novo, error } = await supabase.from('servicos').insert([dadosServico]).select().single();
-      if (error) return alert("Erro ao criar serviço: " + error.message);
+      const { data: novo } = await supabase.from('servicos').insert([dadosServico]).select().single();
       servicoId = novo.id;
     }
 
     for (const barbeiroId of Object.keys(temposPorProfissional)) {
-      const duracao = Number(temposPorProfissional[barbeiroId]);
-      await supabase.from('barbeiro_servicos').upsert({
-        barbeiro_id: barbeiroId,
-        servico_id: servicoId,
-        duracao_minutos: duracao,
-        empresa_id: perfilUsuario.empresa_id
-      }, { onConflict: 'barbeiro_id, servico_id' });
+      await supabase.from('barbeiro_servicos').upsert({ barbeiro_id: barbeiroId, servico_id: servicoId, duracao_minutos: Number(temposPorProfissional[barbeiroId]), empresa_id: perfilUsuario.empresa_id }, { onConflict: 'barbeiro_id, servico_id' });
     }
-
     setModalServico(false);
     carregarDadosBase();
   }
@@ -267,44 +227,28 @@ export default function AdminDashboard() {
 
   async function salvarAgendamentoManual(e) {
     e.preventDefault();
-    let { data: cliente } = await supabase.from('clientes')
-      .select('id').eq('telefone', formNovoAgendamento.telefone).eq('empresa_id', perfilUsuario.empresa_id).maybeSingle();
+    let { data: cliente } = await supabase.from('clientes').select('id').eq('telefone', formNovoAgendamento.telefone).eq('empresa_id', perfilUsuario.empresa_id).maybeSingle();
       
     if (!cliente) {
-      const { data: novo } = await supabase.from('clientes')
-        .insert([{ nome: formNovoAgendamento.cliente, telefone: formNovoAgendamento.telefone, empresa_id: perfilUsuario.empresa_id }])
-        .select().single();
+      const { data: novo } = await supabase.from('clientes').insert([{ nome: formNovoAgendamento.cliente, telefone: formNovoAgendamento.telefone, empresa_id: perfilUsuario.empresa_id }]).select().single();
       cliente = novo;
     }
     
     const profId = formNovoAgendamento.profissional_id || perfilUsuario.id;
     const serv = servicos.find(s => s.id === formNovoAgendamento.servico_id);
-
     const duracCustom = duracoesEquipe.find(d => d.servico_id === serv.id && d.barbeiro_id === profId);
     const duracaoFinal = duracCustom ? duracCustom.duracao_minutos : (serv.duracao_minutos || 30);
-
     const inicioIso = new Date(`${formNovoAgendamento.data}T${formNovoAgendamento.hora}:00-03:00`);
     const fimIso = new Date(inicioIso.getTime() + (duracaoFinal * 60000));
 
-    await supabase.from('agendamentos').insert([{ 
-      cliente_id: cliente.id, 
-      barbeiro_id: profId,
-      servico_id: serv.id, 
-      empresa_id: perfilUsuario.empresa_id, 
-      data_hora_inicio: inicioIso.toISOString(), 
-      data_hora_fim: fimIso.toISOString(), 
-      status: 'confirmado' 
-    }]);
-    
+    await supabase.from('agendamentos').insert([{ cliente_id: cliente.id, barbeiro_id: profId, servico_id: serv.id, empresa_id: perfilUsuario.empresa_id, data_hora_inicio: inicioIso.toISOString(), data_hora_fim: fimIso.toISOString(), status: 'confirmado' }]);
     setModalAgendamento(false);
     carregarAgenda();
   }
 
   async function salvarTransacaoManual(e) {
     e.preventDefault();
-    await supabase.from('transacoes').insert([{ 
-      tipo: formTransacao.tipo, descricao: formTransacao.descricao, valor: formTransacao.valor, empresa_id: perfilUsuario.empresa_id 
-    }]);
+    await supabase.from('transacoes').insert([{ tipo: formTransacao.tipo, descricao: formTransacao.descricao, valor: formTransacao.valor, empresa_id: perfilUsuario.empresa_id }]);
     setModalTransacao(false);
     carregarFinanceiro();
   }
@@ -316,34 +260,19 @@ export default function AdminDashboard() {
     if (!telefone) return alert("Cliente sem telefone.");
     const numeroLimpo = telefone.replace(/\D/g, '');
     const numeroFinal = numeroLimpo.startsWith('55') ? numeroLimpo : `55${numeroLimpo}`;
-
-    const dataObj = new Date(ag.data_hora_inicio);
-    const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+    const hora = new Date(ag.data_hora_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
     const nomeCliente = ag.clientes?.nome.split(' ')[0] || 'chefe';
     const barbeiroNome = ag.barbeiros?.nome.split(' ')[0] || 'nossa equipe';
-
     const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário de ${ag.servicos?.nome} hoje às ${hora} com ${barbeiroNome}. Te aguardamos, chefe!`;
     window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
   const listaEntradasCortes = financeiro.map(ag => {
-    const valorCobrado = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
-    return {
-      id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
-      subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(valorCobrado),
-      tipo: 'ENTRADA', tag: 'Serviço'
-    };
+    return { id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço', subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0), tipo: 'ENTRADA', tag: 'Serviço' };
   });
 
-  const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({
-    id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Entrada Extra',
-    valor: Number(t.valor), tipo: 'ENTRADA', tag: 'Extra'
-  }));
-
-  const listaSaidas = transacoes.filter(t => t.tipo === 'SAIDA').map(t => ({
-    id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Despesa / Pagamento',
-    valor: Number(t.valor), tipo: 'SAIDA', tag: 'Saída'
-  }));
+  const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({ id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Entrada Extra', valor: Number(t.valor), tipo: 'ENTRADA', tag: 'Extra' }));
+  const listaSaidas = transacoes.filter(t => t.tipo === 'SAIDA').map(t => ({ id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Despesa / Pagamento', valor: Number(t.valor), tipo: 'SAIDA', tag: 'Saída' }));
 
   const todasEntradas = [...listaEntradasCortes, ...listaEntradasExtras].sort((a,b) => new Date(b.data) - new Date(a.data));
   const todasSaidas = [...listaSaidas].sort((a,b) => new Date(b.data) - new Date(a.data));
@@ -356,8 +285,7 @@ export default function AdminDashboard() {
   const dadosGrafico = {};
   financeiro.forEach(ag => {
     const dia = new Date(ag.data_hora_inicio).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    const valor = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
-    dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(valor);
+    dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0);
   });
   const maxFaturamentoDia = Math.max(...Object.values(dadosGrafico), 1);
 
@@ -369,21 +297,38 @@ export default function AdminDashboard() {
 
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
-    .brand-theme {
-      --leather: #16130F; --leather-2: #1D1912; --leather-3: #241F17;
-      --brass: #C9A24B; --brass-bright: #E4C066;
-      --copper: #A85C2E; --copper-bright: #C97A44;
-      --paper: #EFE6D8; --paper-dim: #9C9182;
-      --line: rgba(201,162,75,0.16); --green: #7FA86B;
-      font-family: 'Work Sans', sans-serif;
-      background-color: var(--leather);
-      color: var(--paper);
-    }
+    .brand-theme { --leather: #16130F; --leather-2: #1D1912; --leather-3: #241F17; --brass: #C9A24B; --brass-bright: #E4C066; --copper: #A85C2E; --copper-bright: #C97A44; --paper: #EFE6D8; --paper-dim: #9C9182; --line: rgba(201,162,75,0.16); --green: #7FA86B; font-family: 'Work Sans', sans-serif; background-color: var(--leather); color: var(--paper); }
     .font-fraunces { font-family: 'Fraunces', serif; }
     .font-mono { font-family: 'Space Mono', monospace; }
     .hide-scroll::-webkit-scrollbar { display: none; }
     .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
   `;
+
+  // TELA DE BLOQUEIO (PAYWALL)
+  if (contaBloqueada) {
+    return (
+      <>
+        <style>{brandStyles}</style>
+        <div className="brand-theme min-h-screen flex items-center justify-center p-4">
+          <div className="bg-[var(--leather-2)] border border-[var(--brass)] p-8 rounded-xl max-w-md w-full text-center shadow-[0_0_50px_rgba(201,162,75,0.1)] relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[var(--brass)] to-[var(--copper-bright)]"></div>
+            <h2 className="font-fraunces font-bold text-[24px] text-[var(--paper)] mb-2 mt-4">Seu período de teste acabou!</h2>
+            <p className="text-[var(--paper-dim)] text-sm mb-8">
+              Esperamos que tenha gostado da magia na gestão da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
+            </p>
+            <div className="flex flex-col gap-3">
+              <a href="https://wa.me/5511999999999?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:bg-[var(--brass-bright)] transition-colors">
+                Assinar Maggia
+              </a>
+              <button onClick={handleSair} className="text-[11px] font-mono text-[var(--paper-dim)] hover:text-white uppercase tracking-widest mt-2">
+                Sair da Conta
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -393,8 +338,8 @@ export default function AdminDashboard() {
         {/* SIDEBAR */}
         <div className="w-full md:w-[220px] shrink-0 bg-[var(--leather-2)] border-b md:border-b-0 md:border-r border-[var(--line)] p-4 md:p-5 flex flex-row md:flex-col justify-between md:justify-start items-center md:items-stretch z-10 sticky top-0 md:h-screen">
           <div className="flex items-center gap-3 md:mb-8">
-            <img src="/BFB3EEA2-F7C6-4AD7-9E2D-384F1676CCB4.JPG" alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded-full border-[1.5px] border-[var(--brass)] object-cover shadow-lg" />
-            <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight">BARBER<br/>HALLEY</div>
+            <img src="/logomaggia.JPG" alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded border-[1.5px] border-[var(--brass)] object-cover shadow-lg" />
+            <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight text-white uppercase">{dadosEmpresa?.nome || 'Maggia'}</div>
           </div>
           
           <div className="hidden md:block font-mono text-[10px] tracking-[.1em] uppercase text-[var(--paper-dim)] my-4 px-3">Operação</div>
@@ -411,7 +356,11 @@ export default function AdminDashboard() {
           </div>
           
           <div className="hidden md:block mt-auto pt-4 border-t border-[var(--line)] text-xs text-[var(--paper-dim)]">
-            <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest">{perfilUsuario?.nome}</div>
+            <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">
+              {perfilUsuario?.nome}
+            </div>
+            {/* BOTÃO COPIAR LINK DO INSTAGRAM */}
+            <button onClick={() => {navigator.clipboard.writeText(`https://seu-site.vercel.app/${dadosEmpresa?.slug}`); alert('Link de Agendamento copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
             <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair do Sistema</button>
           </div>
         </div>
@@ -429,23 +378,15 @@ export default function AdminDashboard() {
             
             <div className="w-full sm:w-auto text-right flex gap-2">
               {abaAtiva === 'servicos' ? (
-                <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
-                  + Novo Serviço
-                </button>
+                <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">+ Novo Serviço</button>
               ) : abaAtiva === 'equipe' ? (
-                <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
-                  + Novo Profissional
-                </button>
+                <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">+ Novo Profissional</button>
               ) : (
-                <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
-                  + Novo agendamento
-                </button>
+                <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">+ Novo agendamento</button>
               )}
               
               {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && (
-                <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[rgba(201,162,75,0.1)] transition-colors shadow-lg">
-                  + Lançar Transação
-                </button>
+                <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[rgba(201,162,75,0.1)] transition-colors shadow-lg">+ Lançar Transação</button>
               )}
             </div>
           </div>
@@ -464,9 +405,7 @@ export default function AdminDashboard() {
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
                       <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Resumo da Agenda</span>
-                      <div className="font-mono text-[11px] text-[var(--paper-dim)]">
-                        <span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos
-                      </div>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]"><span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos</div>
                     </div>
 
                     {agendamentos.length === 0 ? (
@@ -490,7 +429,6 @@ export default function AdminDashboard() {
                               const diaNum = dataObj.toLocaleDateString('pt-BR', { day: '2-digit' });
                               const mes = dataObj.toLocaleDateString('pt-BR', { month: 'short' }).substring(0,3);
                               const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
-                              
                               const isCancelado = ag.status === 'cancelado';
                               const isConcluido = ag.status === 'concluido';
                               const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
@@ -511,9 +449,7 @@ export default function AdminDashboard() {
                                     {ag.clientes?.nome}
                                     <div className="text-[10.5px] text-[var(--paper-dim)] font-mono mt-1">{ag.clientes?.telefone}</div>
                                   </td>
-                                  <td className="py-3 border-b border-[var(--line)] text-[12.5px] text-[var(--paper)]">
-                                    {ag.barbeiros?.nome || 'Não atribuído'}
-                                  </td>
+                                  <td className="py-3 border-b border-[var(--line)] text-[12.5px] text-[var(--paper)]">{ag.barbeiros?.nome || 'Não atribuído'}</td>
                                   <td className="py-3 border-b border-[var(--line)]">
                                     <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
                                     <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(precoEfetivo).toFixed(2)}</div>
@@ -548,11 +484,8 @@ export default function AdminDashboard() {
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
                       <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Catálogo de Serviços</span>
-                      <div className="font-mono text-[11px] text-[var(--paper-dim)]">
-                        <span className="text-[var(--brass-bright)] font-bold">{servicos.length}</span> Cadastrados
-                      </div>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]"><span className="text-[var(--brass-bright)] font-bold">{servicos.length}</span> Cadastrados</div>
                     </div>
-
                     <div className="grid gap-3">
                       {servicos.map(s => {
                         const temPromo = s.preco_promocional && Number(s.preco_promocional) > 0;
@@ -561,15 +494,10 @@ export default function AdminDashboard() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[14px] font-semibold text-[var(--paper)]">{s.nome}</span>
-                                {temPromo && (
-                                  <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-[var(--copper-bright)] text-white uppercase tracking-wider">Promoção</span>
-                                )}
+                                {temPromo && <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-[var(--copper-bright)] text-white uppercase tracking-wider">Promoção</span>}
                               </div>
-                              <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">
-                                Tempo Padrão: {s.duracao_minutos || 30} min
-                              </div>
+                              <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">Tempo Padrão: {s.duracao_minutos || 30} min</div>
                             </div>
-
                             <div className="flex items-center gap-3 justify-between sm:justify-end">
                               <div className="text-right">
                                 {temPromo ? (
@@ -581,12 +509,8 @@ export default function AdminDashboard() {
                                   <span className="font-mono text-[15px] font-bold text-[var(--brass-bright)]">R$ {Number(s.preco).toFixed(2)}</span>
                                 )}
                               </div>
-
                               <button onClick={() => abrirModalEditarServico(s)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
-                              
-                              <button onClick={() => toggleStatusServico(s.id, s.ativo)} className={`text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)]' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>
-                                {s.ativo ? 'Ativo' : 'Inativo'}
-                              </button>
+                              <button onClick={() => toggleStatusServico(s.id, s.ativo)} className={`text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)]' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>{s.ativo ? 'Ativo' : 'Inativo'}</button>
                             </div>
                           </div>
                         );
@@ -617,20 +541,17 @@ export default function AdminDashboard() {
                             </div>
                           </div>
                           
-                          {/* BOTÕES DA EQUIPE: Editar e Excluir */}
                           <div className="flex gap-2">
                             <button onClick={() => abrirModalEditarEquipe(membro)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">
                               Editar
                             </button>
                             
-                            {/* O dono NÃO PODE excluir a própria conta para não se trancar fora do sistema */}
                             {membro.id !== perfilUsuario.id && (
                               <button onClick={() => excluirProfissional(membro.id, membro.nome)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-red-900/20 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white transition-colors">
                                 Excluir
                               </button>
                             )}
                           </div>
-
                         </div>
                       ))}
                     </div>
@@ -690,8 +611,7 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAIS */}
-
+        {/* MODAIS (Manter todos como estavam) */}
         {/* MODAL: Criar / Editar Profissional */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">

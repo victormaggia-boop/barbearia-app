@@ -79,6 +79,23 @@ export default function Home() {
       return;
     }
 
+    // 5. Disparar alerta de novo cliente para o SEU e-mail
+    try {
+      await fetch("https://formsubmit.co/ajax/victormaggia@gmail.com", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          _subject: "💰 Novo Cliente Maggia: " + nomeBarbearia,
+          Nome_do_Dono: nomeDono,
+          Barbearia: nomeBarbearia,
+          Email_do_Cliente: email,
+          Link_Criado: "https://seu-site.vercel.app/" + slugGerado
+        })
+      });
+    } catch (err) {
+      console.log("Erro silencioso no alerta de email");
+    }
+
     // Sucesso! Joga o dono direto pro painel dele
     navigate('/dashboard');
   }
@@ -136,7 +153,9 @@ export default function Home() {
         {/* FORMULÁRIO DE CADASTRO SaaS */}
         <div className="w-full max-w-md bg-black/60 border border-gold/30 rounded-2xl p-8 backdrop-blur-xl shadow-[0_0_50px_rgba(201,162,75,0.1)]">
           <h3 className="font-fraunces font-bold text-2xl mb-1 text-white">Criar minha conta</h3>
-          <p className="font-mono text-[10px] text-gray-400 tracking-widest uppercase mb-6">Teste grátis agora mesmo</p>
+          
+          {/* AQUI ESTÁ A MUDANÇA DE MARKETING */}
+          <p className="font-mono text-[10px] text-gray-400 tracking-widest uppercase mb-6">Teste 30 dias grátis agora mesmo</p>
           
           <form onSubmit={handleCriarConta} className="space-y-4">
             <div>
