@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
+import Home from './Home'; // <--- Importamos a nova Landing Page
 import Booking from './Booking';
 import AdminLogin from './AdminLogin';
 import AdminDashboard from './AdminDashboard';
@@ -9,18 +10,15 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={
-          <div style={{ backgroundColor: '#0A0F16', minHeight: '100vh', color: '#C9A24B', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' }}>
-            <h2>MAGGIA - SaaS</h2>
-            <p style={{ color: '#9C9182', marginTop: '10px' }}>Página de vendas em construção...</p>
-          </div>
-        } />
+        {/* A Nova Landing Page de Vendas */}
+        <Route path="/" element={<Home />} />
         
+        {/* Rotas Internas do Sistema */}
         <Route path="/admin" element={<AdminLogin />} />
         <Route path="/cadastro" element={<Cadastro />} />
         <Route path="/dashboard" element={<AdminDashboard />} />
         
-        {/* ESTA É A ROTA QUE ESTÁ FALTANDO LÁ NA VERCEL */}
+        {/* Rota Dinâmica da Barbearia (Agenda do Cliente) */}
         <Route path="/:slug" element={<Booking />} />
       </Routes>
     </Router>
