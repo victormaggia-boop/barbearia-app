@@ -5,6 +5,9 @@ import { useNavigate } from 'react-router-dom';
 export default function AdminDashboard() {
   const navigate = useNavigate();
   
+  // Perfil do Usuário Logado (O Motor do SaaS)
+  const [perfilUsuario, setPerfilUsuario] = useState(null);
+
   const [abaAtiva, setAbaAtiva] = useState('agenda');
   const [filtroAgenda, setFiltroAgenda] = useState('hoje');
   const [filtroFinanceiro, setFiltroFinanceiro] = useState('este_mes');
@@ -17,35 +20,55 @@ export default function AdminDashboard() {
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
-  
-  // Novo estado para o Modal de Detalhes Financeiros ('ENTRADAS' | 'SAIDAS' | 'GERAL' | null)
   const [modalDetalhes, setModalDetalhes] = useState(null);
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
 
+  // 1. CHECAGEM DE SESSÃO E IDENTIFICAÇÃO DA EMPRESA (SaaS)
   useEffect(() => {
-    async function checarSessao() {
+    async function inicializarSistema() {
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
-        navigate('/login');
+        navigate('/admin');
+        return;
+      }
+
+      // Descobre quem é o usuário, qual a empresa dele e o cargo
+      const { data: perfil } = await supabase
+        .from('barbeiros')
+        .select('id, nome, cargo, empresa_id')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+
+      if (perfil) {
+        setPerfilUsuario(perfil);
       } else {
-        carregarDadosBase();
-        carregarAgenda();
-        carregarFinanceiro();
+        alert("Erro: Seu usuário não está vinculado a uma empresa. Contate o suporte.");
+        await supabase.auth.signOut();
+        navigate('/admin');
       }
     }
-    checarSessao();
+    inicializarSistema();
   }, [navigate]);
 
-  useEffect(() => { carregarAgenda(); }, [filtroAgenda]);
-  useEffect(() => { carregarFinanceiro(); }, [filtroFinanceiro]);
+  // Dispara o carregamento dos dados SOMENTE APÓS descobrir a empresa do usuário
+  useEffect(() => { if (perfilUsuario) carregarDadosBase(); }, [perfilUsuario]);
+  useEffect(() => { if (perfilUsuario) carregarAgenda(); }, [filtroAgenda, perfilUsuario]);
+  useEffect(() => { 
+    if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); 
+  }, [filtroFinanceiro, perfilUsuario]);
 
   async function carregarDadosBase() {
-    const { data } = await supabase.from('servicos').select('*').eq('ativo', true);
+    const { data } = await supabase.from('servicos')
+      .select('*')
+      .eq('empresa_id', perfilUsuario.empresa_id)
+      .eq('ativo', true);
     if (data) setServicos(data);
   }
 
+  // 2. ISOLAMENTO DE DADOS (Puxa só o que for da empresa_id)
   async function carregarAgenda() {
     setLoading(true);
     let inicio = new Date();
@@ -62,6 +85,7 @@ export default function AdminDashboard() {
 
     const { data } = await supabase.from('agendamentos')
       .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco)`)
+      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
       .gte('data_hora_inicio', inicio.toISOString())
       .lte('data_hora_inicio', fim.toISOString())
       .order('data_hora_inicio', { ascending: true });
@@ -84,12 +108,13 @@ export default function AdminDashboard() {
       fim = new Date(fim.getFullYear(), fim.getMonth(), 0, 23, 59, 59);
     }
 
-    // Buscando mais detalhes: clientes(nome) e servicos(nome, preco)
     const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco), clientes(nome)`)
+      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
       
     const { data: transacs } = await supabase.from('transacoes').select('*')
+      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
       .gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString());
 
     setFinanceiro(cortes || []);
@@ -99,72 +124,78 @@ export default function AdminDashboard() {
   async function alterarStatus(id, novoStatus) {
     await supabase.from('agendamentos').update({ status: novoStatus }).eq('id', id);
     carregarAgenda();
-    carregarFinanceiro();
+    if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
+  // 3. SALVANDO DADOS COM A ETIQUETA DA EMPRESA
   async function salvarAgendamentoManual(e) {
     e.preventDefault();
-    let { data: cliente } = await supabase.from('clientes').select('id').eq('telefone', formNovoAgendamento.telefone).maybeSingle();
+    let { data: cliente } = await supabase.from('clientes')
+      .select('id')
+      .eq('telefone', formNovoAgendamento.telefone)
+      .eq('empresa_id', perfilUsuario.empresa_id)
+      .maybeSingle();
+      
     if (!cliente) {
-      const { data: novo } = await supabase.from('clientes').insert([{ nome: formNovoAgendamento.cliente, telefone: formNovoAgendamento.telefone }]).select().single();
+      const { data: novo } = await supabase.from('clientes')
+        .insert([{ nome: formNovoAgendamento.cliente, telefone: formNovoAgendamento.telefone, empresa_id: perfilUsuario.empresa_id }])
+        .select().single();
       cliente = novo;
     }
-    const { data: barbeiros } = await supabase.from('barbeiros').select('id').limit(1);
+    
     const serv = servicos.find(s => s.id === formNovoAgendamento.servico_id);
     const inicioIso = new Date(`${formNovoAgendamento.data}T${formNovoAgendamento.hora}:00-03:00`);
     const fimIso = new Date(inicioIso.getTime() + (serv.duracao_minutos * 60000));
 
-    await supabase.from('agendamentos').insert([{ cliente_id: cliente.id, barbeiro_id: barbeiros[0].id, servico_id: serv.id, data_hora_inicio: inicioIso.toISOString(), data_hora_fim: fimIso.toISOString(), status: 'confirmado' }]);
+    await supabase.from('agendamentos').insert([{ 
+      cliente_id: cliente.id, 
+      barbeiro_id: perfilUsuario.id, 
+      servico_id: serv.id, 
+      empresa_id: perfilUsuario.empresa_id, 
+      data_hora_inicio: inicioIso.toISOString(), 
+      data_hora_fim: fimIso.toISOString(), 
+      status: 'confirmado' 
+    }]);
+    
     setModalAgendamento(false);
     carregarAgenda();
   }
 
   async function salvarTransacaoManual(e) {
     e.preventDefault();
-    await supabase.from('transacoes').insert([{ tipo: formTransacao.tipo, descricao: formTransacao.descricao, valor: formTransacao.valor }]);
+    await supabase.from('transacoes').insert([{ 
+      tipo: formTransacao.tipo, 
+      descricao: formTransacao.descricao, 
+      valor: formTransacao.valor,
+      empresa_id: perfilUsuario.empresa_id 
+    }]);
     setModalTransacao(false);
     carregarFinanceiro();
   }
 
-  async function handleSair() { await supabase.auth.signOut(); navigate('/login'); }
+  async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
 
-  // Processamento de Listas para o Extrato Detalhado
+  // Cálculos do Financeiro
   const listaEntradasCortes = financeiro.map(ag => ({
-    id: ag.id,
-    data: ag.data_hora_inicio,
-    titulo: ag.servicos?.nome || 'Serviço',
-    subtitulo: ag.clientes?.nome || 'Cliente não identificado',
-    valor: Number(ag.servicos?.preco || 0),
-    tipo: 'ENTRADA',
-    tag: 'Serviço'
+    id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
+    subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco || 0),
+    tipo: 'ENTRADA', tag: 'Serviço'
   }));
 
   const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({
-    id: t.id,
-    data: t.data_hora,
-    titulo: t.descricao,
-    subtitulo: 'Entrada Extra',
-    valor: Number(t.valor),
-    tipo: 'ENTRADA',
-    tag: 'Extra'
+    id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Entrada Extra',
+    valor: Number(t.valor), tipo: 'ENTRADA', tag: 'Extra'
   }));
 
   const listaSaidas = transacoes.filter(t => t.tipo === 'SAIDA').map(t => ({
-    id: t.id,
-    data: t.data_hora,
-    titulo: t.descricao,
-    subtitulo: 'Despesa / Pagamento',
-    valor: Number(t.valor),
-    tipo: 'SAIDA',
-    tag: 'Saída'
+    id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Despesa / Pagamento',
+    valor: Number(t.valor), tipo: 'SAIDA', tag: 'Saída'
   }));
 
-  // Ordena por data (mais recente primeiro)
   const todasEntradas = [...listaEntradasCortes, ...listaEntradasExtras].sort((a,b) => new Date(b.data) - new Date(a.data));
   const todasSaidas = [...listaSaidas].sort((a,b) => new Date(b.data) - new Date(a.data));
   const todasMovimentacoes = [...todasEntradas, ...todasSaidas].sort((a,b) => new Date(b.data) - new Date(a.data));
 
-  // Cálculos de Totais
   const totalEntradas = todasEntradas.reduce((acc, curr) => acc + curr.valor, 0);
   const totalSaidas = todasSaidas.reduce((acc, curr) => acc + curr.valor, 0);
   const saldoLiquido = totalEntradas - totalSaidas;
@@ -176,23 +207,14 @@ export default function AdminDashboard() {
   });
   const maxFaturamentoDia = Math.max(...Object.values(dadosGrafico), 1);
 
-  // Seleciona qual lista renderizar no modal de detalhes
   let detalhesAtuais = [];
   let tituloDetalhes = '';
-  if (modalDetalhes === 'ENTRADAS') {
-    detalhesAtuais = todasEntradas;
-    tituloDetalhes = 'Detalhamento de Entradas';
-  } else if (modalDetalhes === 'SAIDAS') {
-    detalhesAtuais = todasSaidas;
-    tituloDetalhes = 'Detalhamento de Saídas';
-  } else if (modalDetalhes === 'GERAL') {
-    detalhesAtuais = todasMovimentacoes;
-    tituloDetalhes = 'Extrato Geral';
-  }
+  if (modalDetalhes === 'ENTRADAS') { detalhesAtuais = todasEntradas; tituloDetalhes = 'Detalhamento de Entradas'; }
+  else if (modalDetalhes === 'SAIDAS') { detalhesAtuais = todasSaidas; tituloDetalhes = 'Detalhamento de Saídas'; }
+  else if (modalDetalhes === 'GERAL') { detalhesAtuais = todasMovimentacoes; tituloDetalhes = 'Extrato Geral'; }
 
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
-    
     .brand-theme {
       --leather: #16130F; --leather-2: #1D1912; --leather-3: #241F17;
       --brass: #C9A24B; --brass-bright: #E4C066;
@@ -220,13 +242,20 @@ export default function AdminDashboard() {
             <img src="/BFB3EEA2-F7C6-4AD7-9E2D-384F1676CCB4.JPG" alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded-full border-[1.5px] border-[var(--brass)] object-cover shadow-lg" />
             <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight">BARBER<br/>HALLEY</div>
           </div>
+          
           <div className="hidden md:block font-mono text-[10px] tracking-[.1em] uppercase text-[var(--paper-dim)] my-4 px-3">Operação</div>
           <div className="flex flex-row md:flex-col gap-2">
             <button onClick={() => setAbaAtiva('agenda')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'agenda' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Agenda</button>
-            <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
+            
+            {/* CONTROLE DE ACESSO: SÓ O DONO VÊ O BOTÃO FINANCEIRO */}
+            {perfilUsuario?.cargo === 'dono' && (
+              <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
+            )}
           </div>
+          
           <div className="hidden md:block mt-auto pt-4 border-t border-[var(--line)] text-xs text-[var(--paper-dim)]">
-            <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left">Sair do Sistema</button>
+            <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest">{perfilUsuario?.nome}</div>
+            <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair do Sistema</button>
           </div>
         </div>
 
@@ -240,10 +269,17 @@ export default function AdminDashboard() {
                 {abaAtiva === 'agenda' ? 'Sua Agenda' : 'Relatório Financeiro'}
               </h1>
             </div>
-            <div className="w-full sm:w-auto text-right">
-              <button onClick={() => abaAtiva === 'agenda' ? setModalAgendamento(true) : setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
-                {abaAtiva === 'agenda' ? '+ Novo agendamento' : '+ Lançar Movimentação'}
+            
+            <div className="w-full sm:w-auto text-right flex gap-2">
+              <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                + Novo agendamento
               </button>
+              {/* CONTROLE DE ACESSO: SÓ O DONO PODE LANÇAR MOVIMENTAÇÕES MANUAIS NO CAIXA */}
+              {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && (
+                <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[rgba(201,162,75,0.1)] transition-colors shadow-lg">
+                  + Lançar Transação
+                </button>
+              )}
             </div>
           </div>
 
@@ -260,7 +296,7 @@ export default function AdminDashboard() {
 
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
-                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Resumo do Período</span>
+                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Resumo da Agenda</span>
                       <div className="font-mono text-[11px] text-[var(--paper-dim)]">
                         <span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos
                       </div>
@@ -333,8 +369,8 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: FINANCEIRO */}
-              {abaAtiva === 'financeiro' && (
+              {/* ABA: FINANCEIRO (Protegida) */}
+              {abaAtiva === 'financeiro' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-5xl">
                   
                   <div className="flex gap-2 overflow-x-auto hide-scroll pb-4 mb-2">
@@ -343,7 +379,6 @@ export default function AdminDashboard() {
                     <button onClick={() => setFiltroFinanceiro('mes_passado')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroFinanceiro === 'mes_passado' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Mês Passado</button>
                   </div>
 
-                  {/* Stat Cards - Agora Clicáveis */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                     <div onClick={() => setModalDetalhes('ENTRADAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--brass)] transition-all group">
                       <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--brass-bright)] transition-colors">Entradas Totais <span>Ver →</span></div>
@@ -391,12 +426,11 @@ export default function AdminDashboard() {
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
-              
               <div className="flex justify-between items-start mb-6 border-b border-[var(--line)] pb-4">
                 <div>
                   <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{tituloDetalhes}</h2>
                   <div className="text-[11px] text-[var(--paper-dim)] font-mono">
-                    Período selecionado: {filtroFinanceiro.replace('_', ' ').toUpperCase()}
+                    Período: {filtroFinanceiro.replace('_', ' ').toUpperCase()}
                   </div>
                 </div>
                 <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-xl font-bold p-2">&times;</button>
@@ -413,12 +447,8 @@ export default function AdminDashboard() {
                       <div key={idx} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${isEntrada ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)]' : 'bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)]'}`}>
-                              {item.tag}
-                            </span>
-                            <span className="text-[10px] font-mono text-[var(--paper-dim)]">
-                              {d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})} · {d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
-                            </span>
+                            <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${isEntrada ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)]' : 'bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)]'}`}>{item.tag}</span>
+                            <span className="text-[10px] font-mono text-[var(--paper-dim)]">{d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})} · {d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
                           </div>
                           <div className="text-[13px] font-semibold text-[var(--paper)] mt-1.5">{item.titulo}</div>
                           <div className="text-[11px] text-[var(--paper-dim)] mt-0.5">{item.subtitulo}</div>
@@ -435,7 +465,6 @@ export default function AdminDashboard() {
               <div className="mt-6 pt-4 border-t border-[var(--line)] flex justify-end">
                 <button onClick={() => setModalDetalhes(null)} className="py-2.5 px-6 border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Fechar Detalhes</button>
               </div>
-
             </div>
           </div>
         )}
@@ -466,8 +495,8 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Transação */}
-        {modalTransacao && (
+        {/* MODAL: Transação (Visível só pro dono) */}
+        {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Nova Movimentação</h2>
