@@ -317,7 +317,7 @@ export default function AdminDashboard() {
               Esperamos que tenha gostado da magia na gestão da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
             </p>
             <div className="flex flex-col gap-3">
-              <a href="https://wa.me/5511999999999?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:bg-[var(--brass-bright)] transition-colors">
+              <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:bg-[var(--brass-bright)] transition-colors">
                 Assinar Maggia
               </a>
               <button onClick={handleSair} className="text-[11px] font-mono text-[var(--paper-dim)] hover:text-white uppercase tracking-widest mt-2">
@@ -359,9 +359,16 @@ export default function AdminDashboard() {
             <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">
               {perfilUsuario?.nome}
             </div>
+            
             {/* BOTÃO COPIAR LINK DO INSTAGRAM */}
             <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link de Agendamento copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
-            <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair do Sistema</button>
+            
+            {/* NOVO BOTÃO: ASSINAR MAGGIA (VISÍVEL NO TRIAL) */}
+            <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20ativar%20minha%20assinatura%20da%20Maggia!" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4 flex items-center gap-1">
+              🚀 Assinar Sistema
+            </a>
+
+            <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair da Conta</button>
           </div>
         </div>
 
