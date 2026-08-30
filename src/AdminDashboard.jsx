@@ -360,7 +360,7 @@ export default function AdminDashboard() {
               {perfilUsuario?.nome}
             </div>
             {/* BOTÃO COPIAR LINK DO INSTAGRAM */}
-            <button onClick={() => {navigator.clipboard.writeText(`https://seu-site.vercel.app/${dadosEmpresa?.slug}`); alert('Link de Agendamento copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
+            <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link de Agendamento copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
             <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair do Sistema</button>
           </div>
         </div>
