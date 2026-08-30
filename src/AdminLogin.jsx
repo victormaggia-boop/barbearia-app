@@ -82,7 +82,7 @@ export default function AdminLogin() {
           
           <div className="text-center mb-8 flex flex-col items-center">
             {/* LOGO - Verifique se a extensão é .jpg, .png ou .JPG e ajuste abaixo */}
-            <img src="/logo.jpg" alt="Maggia Logo" className="h-14 object-contain mb-3 rounded-md opacity-90 mix-blend-lighten" />
+            <img src="/logomaggia.jpg" alt="Maggia Logo" className="h-14 object-contain mb-3 rounded-md opacity-90 mix-blend-lighten" />
             <h2 className="font-extrabold text-xl tracking-widest text-white uppercase m-0">Plataforma</h2>
             <p className="font-mono text-[var(--maggia-gold)] tracking-[0.15em] text-[10px] uppercase mt-2">Tecnologia & SaaS</p>
           </div>
