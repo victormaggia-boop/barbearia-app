@@ -171,17 +171,25 @@ export default function AdminDashboard() {
     carregarFinanceiro();
   }
 
-  // NOVA FUNÇÃO: Salvar novo membro da equipe
+  // NOVA FUNÇÃO: Salvar novo membro da equipe (Com aviso de Erros)
   async function salvarProfissional(e) {
     e.preventDefault();
-    await supabase.from('barbeiros').insert([{ 
+    
+    const { error } = await supabase.from('barbeiros').insert([{ 
       nome: formNovaEquipe.nome, 
       telefone: formNovaEquipe.telefone, 
       empresa_id: perfilUsuario.empresa_id,
       cargo: 'profissional'
     }]);
-    setModalEquipe(false);
-    carregarEquipe();
+
+    if (error) {
+      alert("Erro do Banco de Dados: " + error.message);
+      console.error(error);
+    } else {
+      setModalEquipe(false);
+      setFormNovaEquipe({ nome: '', telefone: '' }); // Limpa o formulário
+      carregarEquipe();
+    }
   }
 
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
