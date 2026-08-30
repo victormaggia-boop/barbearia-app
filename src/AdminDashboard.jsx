@@ -15,27 +15,28 @@ export default function AdminDashboard() {
   const [transacoes, setTransacoes] = useState([]);
   const [servicos, setServicos] = useState([]);
   const [equipe, setEquipe] = useState([]);
+  const [duracoesEquipe, setDuracoesEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
   const [modalEquipe, setModalEquipe] = useState(false);
-  const [modalServico, setModalServico] = useState(false); // Modal de Serviços
+  const [modalServico, setModalServico] = useState(false);
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' });
-  const [formNovoServico, setFormNovoServico] = useState({ nome: '', preco: '', duracao_minutos: '30' }); // Formulário de Serviços
+  
+  // Estado para Criar / Editar Serviço
+  const [servicoEditandoId, setServicoEditandoId] = useState(null);
+  const [formServico, setFormServico] = useState({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
+  const [temposPorProfissional, setTemposPorProfissional] = useState({});
 
   useEffect(() => {
     async function inicializarSistema() {
       const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        navigate('/admin');
-        return;
-      }
+      if (!session) return navigate('/admin');
 
       const { data: perfil } = await supabase
         .from('barbeiros')
@@ -65,11 +66,16 @@ export default function AdminDashboard() {
   useEffect(() => { if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); }, [filtroFinanceiro, perfilUsuario]);
 
   async function carregarDadosBase() {
-    const { data } = await supabase.from('servicos')
+    const { data: servs } = await supabase.from('servicos')
       .select('*')
       .eq('empresa_id', perfilUsuario.empresa_id)
       .order('nome', { ascending: true });
-    if (data) setServicos(data);
+    if (servs) setServicos(servs);
+
+    const { data: durac } = await supabase.from('barbeiro_servicos')
+      .select('*')
+      .eq('empresa_id', perfilUsuario.empresa_id);
+    if (durac) setDuracoesEquipe(durac);
   }
 
   async function carregarEquipe() {
@@ -92,7 +98,7 @@ export default function AdminDashboard() {
     }
 
     const { data } = await supabase.from('agendamentos')
-      .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco), barbeiros(nome)`)
+      .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco, preco_promocional), barbeiros(nome)`)
       .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora_inicio', inicio.toISOString())
       .lte('data_hora_inicio', fim.toISOString())
@@ -116,7 +122,7 @@ export default function AdminDashboard() {
       fim = new Date(fim.getFullYear(), fim.getMonth(), 0, 23, 59, 59);
     }
 
-    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco), clientes(nome)`)
+    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco, preco_promocional), clientes(nome)`)
       .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
@@ -135,6 +141,75 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
+  function abrirModalCriarServico() {
+    setServicoEditandoId(null);
+    setFormServico({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
+    const temposIniciais = {};
+    equipe.forEach(p => temposIniciais[p.id] = 30);
+    setTemposPorProfissional(temposIniciais);
+    setModalServico(true);
+  }
+
+  function abrirModalEditarServico(servico) {
+    setServicoEditandoId(servico.id);
+    setFormServico({
+      nome: servico.nome,
+      preco: servico.preco,
+      preco_promocional: servico.preco_promocional || '',
+      duracao_minutos: servico.duracao_minutos || 30
+    });
+
+    const temposAtuais = {};
+    equipe.forEach(p => {
+      const encontrado = duracoesEquipe.find(d => d.servico_id === servico.id && d.barbeiro_id === p.id);
+      temposAtuais[p.id] = encontrado ? encontrado.duracao_minutos : (servico.duracao_minutos || 30);
+    });
+    setTemposPorProfissional(temposAtuais);
+    setModalServico(true);
+  }
+
+  async function salvarServico(e) {
+    e.preventDefault();
+    const dadosServico = {
+      nome: formServico.nome,
+      preco: Number(formServico.preco),
+      preco_promocional: formServico.preco_promocional ? Number(formServico.preco_promocional) : null,
+      duracao_minutos: Number(formServico.duracao_minutos),
+      empresa_id: perfilUsuario.empresa_id,
+      ativo: true
+    };
+
+    let servicoId = servicoEditandoId;
+
+    if (servicoEditandoId) {
+      const { error } = await supabase.from('servicos').update(dadosServico).eq('id', servicoEditandoId);
+      if (error) return alert("Erro ao atualizar serviço: " + error.message);
+    } else {
+      const { data: novo, error } = await supabase.from('servicos').insert([dadosServico]).select().single();
+      if (error) return alert("Erro ao criar serviço: " + error.message);
+      servicoId = novo.id;
+    }
+
+    // Salva a duração individual de cada profissional para este serviço
+    for (const barbeiroId of Object.keys(temposPorProfissional)) {
+      const duracao = Number(temposPorProfissional[barbeiroId]);
+      await supabase.from('barbeiro_servicos').upsert({
+        barbeiro_id: barbeiroId,
+        servico_id: servicoId,
+        duracao_minutos: duracao,
+        empresa_id: perfilUsuario.empresa_id
+      }, { onConflict: 'barbeiro_id, servico_id' });
+    }
+
+    setModalServico(false);
+    carregarDadosBase();
+  }
+
+  async function toggleStatusServico(id, statusAtual) {
+    await supabase.from('servicos').update({ ativo: !statusAtual }).eq('id', id);
+    carregarDadosBase();
+  }
+
   async function salvarAgendamentoManual(e) {
     e.preventDefault();
     let { data: cliente } = await supabase.from('clientes')
@@ -147,13 +222,19 @@ export default function AdminDashboard() {
       cliente = novo;
     }
     
+    const profId = formNovoAgendamento.profissional_id || perfilUsuario.id;
     const serv = servicos.find(s => s.id === formNovoAgendamento.servico_id);
+
+    // Busca a duração customizada para aquele profissional específico
+    const duracCustom = duracoesEquipe.find(d => d.servico_id === serv.id && d.barbeiro_id === profId);
+    const duracaoFinal = duracCustom ? duracCustom.duracao_minutos : (serv.duracao_minutos || 30);
+
     const inicioIso = new Date(`${formNovoAgendamento.data}T${formNovoAgendamento.hora}:00-03:00`);
-    const fimIso = new Date(inicioIso.getTime() + (serv.duracao_minutos * 60000));
+    const fimIso = new Date(inicioIso.getTime() + (duracaoFinal * 60000));
 
     await supabase.from('agendamentos').insert([{ 
       cliente_id: cliente.id, 
-      barbeiro_id: formNovoAgendamento.profissional_id || perfilUsuario.id,
+      barbeiro_id: profId,
       servico_id: serv.id, 
       empresa_id: perfilUsuario.empresa_id, 
       data_hora_inicio: inicioIso.toISOString(), 
@@ -180,47 +261,19 @@ export default function AdminDashboard() {
       nome: formNovaEquipe.nome, telefone: formNovaEquipe.telefone, empresa_id: perfilUsuario.empresa_id, cargo: 'profissional'
     }]);
 
-    if (error) {
-      alert("Erro do Banco de Dados: " + error.message);
-    } else {
+    if (error) alert("Erro: " + error.message);
+    else {
       setModalEquipe(false);
       setFormNovaEquipe({ nome: '', telefone: '' });
       carregarEquipe();
     }
   }
 
-  // Função para cadastrar novo serviço
-  async function salvarServico(e) {
-    e.preventDefault();
-    const { error } = await supabase.from('servicos').insert([{
-      nome: formNovoServico.nome,
-      preco: Number(formNovoServico.preco),
-      duracao_minutos: Number(formNovoServico.duracao_minutos),
-      empresa_id: perfilUsuario.empresa_id,
-      ativo: true
-    }]);
-
-    if (error) {
-      alert("Erro ao cadastrar serviço: " + error.message);
-    } else {
-      setModalServico(false);
-      setFormNovoServico({ nome: '', preco: '', duracao_minutos: '30' });
-      carregarDadosBase();
-    }
-  }
-
-  // Função para ativar/desativar serviço
-  async function toggleStatusServico(id, statusAtual) {
-    await supabase.from('servicos').update({ ativo: !statusAtual }).eq('id', id);
-    carregarDadosBase();
-  }
-
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
 
   function enviarWhatsApp(ag) {
     const telefone = ag.clientes?.telefone || '';
-    if (!telefone) return alert("Cliente sem telefone cadastrado.");
-
+    if (!telefone) return alert("Cliente sem telefone.");
     const numeroLimpo = telefone.replace(/\D/g, '');
     const numeroFinal = numeroLimpo.startsWith('55') ? numeroLimpo : `55${numeroLimpo}`;
 
@@ -228,19 +281,20 @@ export default function AdminDashboard() {
     const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
     const nomeCliente = ag.clientes?.nome.split(' ')[0] || 'chefe';
     const barbeiroNome = ag.barbeiros?.nome.split(' ')[0] || 'nossa equipe';
-    const servico = ag.servicos?.nome;
 
-    const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário de ${servico} hoje às ${hora} com ${barbeiroNome}. Te aguardamos, chefe!`;
-    const link = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`;
-    
-    window.open(link, '_blank');
+    const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário de ${ag.servicos?.nome} hoje às ${hora} com ${barbeiroNome}. Te aguardamos, chefe!`;
+    window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
-  const listaEntradasCortes = financeiro.map(ag => ({
-    id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
-    subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco || 0),
-    tipo: 'ENTRADA', tag: 'Serviço'
-  }));
+  // Cálculos Financeiros com suporte a Preço Promocional
+  const listaEntradasCortes = financeiro.map(ag => {
+    const valorCobrado = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
+    return {
+      id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
+      subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(valorCobrado),
+      tipo: 'ENTRADA', tag: 'Serviço'
+    };
+  });
 
   const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({
     id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Entrada Extra',
@@ -263,7 +317,8 @@ export default function AdminDashboard() {
   const dadosGrafico = {};
   financeiro.forEach(ag => {
     const dia = new Date(ag.data_hora_inicio).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(ag.servicos?.preco || 0);
+    const valor = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
+    dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(valor);
   });
   const maxFaturamentoDia = Math.max(...Object.values(dadosGrafico), 1);
 
@@ -335,7 +390,7 @@ export default function AdminDashboard() {
             
             <div className="w-full sm:w-auto text-right flex gap-2">
               {abaAtiva === 'servicos' ? (
-                <button onClick={() => setModalServico(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
                   + Novo Serviço
                 </button>
               ) : abaAtiva === 'equipe' ? (
@@ -399,6 +454,7 @@ export default function AdminDashboard() {
                               
                               const isCancelado = ag.status === 'cancelado';
                               const isConcluido = ag.status === 'concluido';
+                              const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
 
                               return (
                                 <tr key={ag.id} className={`${isCancelado ? 'opacity-40' : ''} hover:bg-[var(--leather-3)] transition-colors`}>
@@ -421,7 +477,7 @@ export default function AdminDashboard() {
                                   </td>
                                   <td className="py-3 border-b border-[var(--line)]">
                                     <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
-                                    <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(ag.servicos?.preco).toFixed(2)}</div>
+                                    <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(precoEfetivo).toFixed(2)}</div>
                                   </td>
                                   <td className="py-3 px-2 border-b border-[var(--line)] text-right">
                                     {isCancelado ? (
@@ -430,9 +486,7 @@ export default function AdminDashboard() {
                                       <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>
                                     ) : (
                                       <div className="flex justify-end gap-2">
-                                        <button onClick={() => enviarWhatsApp(ag)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 hover:bg-[#25D366] hover:text-black transition-colors" title="Enviar WhatsApp">
-                                          WhatsApp
-                                        </button>
+                                        <button onClick={() => enviarWhatsApp(ag)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 hover:bg-[#25D366] hover:text-black transition-colors">WhatsApp</button>
                                         <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">Cancelar</button>
                                         <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">✔ Concluir</button>
                                       </div>
@@ -449,51 +503,68 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: SERVIÇOS (Protegida) */}
+              {/* ABA: SERVIÇOS (Editar + Preço Promocional) */}
               {abaAtiva === 'servicos' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
-                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Serviços Oferecidos</span>
+                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Catálogo de Serviços</span>
                       <div className="font-mono text-[11px] text-[var(--paper-dim)]">
-                        <span className="text-[var(--brass-bright)] font-bold">{servicos.length}</span> Serviços no total
+                        <span className="text-[var(--brass-bright)] font-bold">{servicos.length}</span> Cadastrados
                       </div>
                     </div>
 
                     <div className="grid gap-3">
-                      {servicos.map(s => (
-                        <div key={s.id} className={`flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border ${s.ativo ? 'border-[var(--line)]' : 'border-red-900/40 opacity-60'}`}>
-                          <div>
-                            <div className="text-[14px] font-semibold text-[var(--paper)]">{s.nome}</div>
-                            <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">Duração: {s.duracao_minutos} min</div>
+                      {servicos.map(s => {
+                        const temPromo = s.preco_promocional && Number(s.preco_promocional) > 0;
+                        return (
+                          <div key={s.id} className={`flex flex-col sm:flex-row justify-between sm:items-center bg-[var(--leather-3)] p-4 rounded-md border gap-3 ${s.ativo ? 'border-[var(--line)]' : 'border-red-900/40 opacity-60'}`}>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[14px] font-semibold text-[var(--paper)]">{s.nome}</span>
+                                {temPromo && (
+                                  <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-[var(--copper-bright)] text-white uppercase tracking-wider">Promoção</span>
+                                )}
+                              </div>
+                              <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">
+                                Tempo Padrão: {s.duracao_minutos || 30} min
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 justify-between sm:justify-end">
+                              <div className="text-right">
+                                {temPromo ? (
+                                  <div>
+                                    <span className="text-[11px] font-mono text-[var(--paper-dim)] line-through mr-2">R$ {Number(s.preco).toFixed(2)}</span>
+                                    <span className="font-mono text-[15px] font-bold text-[var(--copper-bright)]">R$ {Number(s.preco_promocional).toFixed(2)}</span>
+                                  </div>
+                                ) : (
+                                  <span className="font-mono text-[15px] font-bold text-[var(--brass-bright)]">R$ {Number(s.preco).toFixed(2)}</span>
+                                )}
+                              </div>
+
+                              <button onClick={() => abrirModalEditarServico(s)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
+                              
+                              <button onClick={() => toggleStatusServico(s.id, s.ativo)} className={`text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)]' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>
+                                {s.ativo ? 'Ativo' : 'Inativo'}
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-4">
-                            <div className="font-mono text-[15px] font-bold text-[var(--brass-bright)]">R$ {Number(s.preco).toFixed(2)}</div>
-                            <button 
-                              onClick={() => toggleStatusServico(s.id, s.ativo)}
-                              className={`text-[10px] font-bold py-1.5 px-3 rounded-md uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)] hover:bg-red-900/30 hover:text-red-400 hover:border-red-500/30' : 'bg-red-900/20 text-red-400 border border-red-500/30 hover:bg-[rgba(127,168,107,0.2)] hover:text-[var(--green)]'}`}
-                            >
-                              {s.ativo ? 'Ativo' : 'Inativo'}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* ABA: EQUIPE (Protegida) */}
+              {/* ABA: EQUIPE */}
               {abaAtiva === 'equipe' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
                       <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Profissionais Cadastrados</span>
-                      <div className="font-mono text-[11px] text-[var(--paper-dim)]">
-                        <span className="text-[var(--brass-bright)] font-bold">{equipe.length}</span> Membros na Equipe
-                      </div>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]"><span className="text-[var(--brass-bright)] font-bold">{equipe.length}</span> Membros</div>
                     </div>
-
                     <div className="grid gap-3">
                       {equipe.map(membro => (
                         <div key={membro.id} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
@@ -502,9 +573,7 @@ export default function AdminDashboard() {
                             <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">{membro.telefone || 'Sem telefone'}</div>
                           </div>
                           <div>
-                            <span className={`text-[10px] font-bold py-1 px-2.5 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]'}`}>
-                              {membro.cargo}
-                            </span>
+                            <span className={`text-[10px] font-bold py-1 px-2.5 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]'}`}>{membro.cargo}</span>
                           </div>
                         </div>
                       ))}
@@ -513,7 +582,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: FINANCEIRO (Protegida) */}
+              {/* ABA: FINANCEIRO */}
               {abaAtiva === 'financeiro' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-5xl">
                   <div className="flex gap-2 overflow-x-auto hide-scroll pb-4 mb-2">
@@ -567,28 +636,69 @@ export default function AdminDashboard() {
 
         {/* MODAIS */}
 
-        {/* MODAL: Novo Serviço */}
+        {/* MODAL: Criar / Editar Serviço + Duração por Profissional */}
         {modalServico && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
-              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Novo Serviço</h2>
-              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Insira os detalhes do serviço</div>
-              <form onSubmit={salvarServico} className="space-y-3">
-                <input type="text" placeholder="Nome do Serviço (ex: Corte + Barba)" required value={formNovoServico.nome} onChange={e => setFormNovoServico({...formNovoServico, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                
-                <div className="flex gap-3">
-                  <input type="number" step="0.01" placeholder="Preço (R$)" required value={formNovoServico.preco} onChange={e => setFormNovoServico({...formNovoServico, preco: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                  
-                  <select required value={formNovoServico.duracao_minutos} onChange={e => setFormNovoServico({...formNovoServico, duracao_minutos: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                    <option value="45">45 min</option>
-                    <option value="60">60 min (1h)</option>
-                    <option value="90">90 min (1h30)</option>
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">
+                {servicoEditandoId ? 'Editar Serviço' : 'Novo Serviço'}
+              </h2>
+              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Configure os preços e durações por barbeiro</div>
+              
+              <form onSubmit={salvarServico} className="space-y-4 overflow-y-auto pr-1 hide-scroll flex-1">
+                <div>
+                  <label className="block text-[11px] font-mono text-[var(--paper-dim)] uppercase mb-1">Nome do Serviço</label>
+                  <input type="text" placeholder="Ex: Corte Degradê" required value={formServico.nome} onChange={e => setFormServico({...formServico, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-mono text-[var(--paper-dim)] uppercase mb-1">Preço Normal (R$)</label>
+                    <input type="number" step="0.01" placeholder="50.00" required value={formServico.preco} onChange={e => setFormServico({...formServico, preco: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono text-[var(--copper-bright)] uppercase mb-1">Preço Promoção (Opcional)</label>
+                    <input type="number" step="0.01" placeholder="35.00" value={formServico.preco_promocional} onChange={e => setFormServico({...formServico, preco_promocional: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-[var(--paper-dim)] uppercase mb-1">Duração Padrão</label>
+                  <select value={formServico.duracao_minutos} onChange={e => setFormServico({...formServico, duracao_minutos: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                    <option value="15">15 minutos</option>
+                    <option value="20">20 minutos</option>
+                    <option value="30">30 minutos</option>
+                    <option value="45">45 minutos</option>
+                    <option value="60">60 minutos (1h)</option>
                   </select>
                 </div>
 
-                <div className="flex gap-3 mt-6">
+                {/* Seção: Tempo Individual por Profissional */}
+                {equipe.length > 0 && (
+                  <div className="pt-3 border-t border-[var(--line)]">
+                    <label className="block text-[11px] font-mono text-[var(--brass-bright)] uppercase mb-2">Tempo por Profissional (Minutos)</label>
+                    <div className="space-y-2">
+                      {equipe.map(p => (
+                        <div key={p.id} className="flex justify-between items-center bg-[var(--leather-3)] p-2.5 rounded border border-[var(--line)]">
+                          <span className="text-xs font-semibold text-[var(--paper)]">{p.nome}</span>
+                          <select 
+                            value={temposPorProfissional[p.id] || formServico.duracao_minutos} 
+                            onChange={e => setTemposPorProfissional({...temposPorProfissional, [p.id]: e.target.value})}
+                            className="p-1.5 bg-[var(--leather-2)] border border-[var(--line)] rounded text-xs text-[var(--brass-bright)] font-mono outline-none"
+                          >
+                            <option value="15">15 min</option>
+                            <option value="20">20 min</option>
+                            <option value="30">30 min</option>
+                            <option value="45">45 min</option>
+                            <option value="60">60 min</option>
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4 border-t border-[var(--line)]">
                   <button type="button" onClick={() => setModalServico(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
                   <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Salvar Serviço</button>
                 </div>
@@ -597,7 +707,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Detalhes Financeiros */}
+        {/* OUTROS MODAIS */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -609,29 +719,25 @@ export default function AdminDashboard() {
                 <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-xl font-bold p-2">&times;</button>
               </div>
               <div className="overflow-y-auto flex-1 hide-scroll pr-2 space-y-3">
-                {detalhesAtuais.length === 0 ? (
-                  <div className="text-center py-10 text-[var(--paper-dim)] font-mono text-xs">Nenhuma movimentação.</div>
-                ) : (
-                  detalhesAtuais.map((item, idx) => {
-                    const d = new Date(item.data);
-                    const isEntrada = item.tipo === 'ENTRADA';
-                    return (
-                      <div key={idx} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${isEntrada ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)]' : 'bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)]'}`}>{item.tag}</span>
-                            <span className="text-[10px] font-mono text-[var(--paper-dim)]">{d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})} · {d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
-                          </div>
-                          <div className="text-[13px] font-semibold text-[var(--paper)] mt-1.5">{item.titulo}</div>
-                          <div className="text-[11px] text-[var(--paper-dim)] mt-0.5">{item.subtitulo}</div>
+                {detalhesAtuais.map((item, idx) => {
+                  const d = new Date(item.data);
+                  const isEntrada = item.tipo === 'ENTRADA';
+                  return (
+                    <div key={idx} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${isEntrada ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)]' : 'bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)]'}`}>{item.tag}</span>
+                          <span className="text-[10px] font-mono text-[var(--paper-dim)]">{d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})} · {d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
                         </div>
-                        <div className={`font-mono text-[14px] font-bold ${isEntrada ? 'text-[var(--brass-bright)]' : 'text-[var(--copper-bright)]'}`}>
-                          {isEntrada ? '+' : '-'} R$ {item.valor.toFixed(2)}
-                        </div>
+                        <div className="text-[13px] font-semibold text-[var(--paper)] mt-1.5">{item.titulo}</div>
+                        <div className="text-[11px] text-[var(--paper-dim)] mt-0.5">{item.subtitulo}</div>
                       </div>
-                    )
-                  })
-                )}
+                      <div className={`font-mono text-[14px] font-bold ${isEntrada ? 'text-[var(--brass-bright)]' : 'text-[var(--copper-bright)]'}`}>
+                        {isEntrada ? '+' : '-'} R$ {item.valor.toFixed(2)}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
               <div className="mt-6 pt-4 border-t border-[var(--line)] flex justify-end">
                 <button onClick={() => setModalDetalhes(null)} className="py-2.5 px-6 border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Fechar Detalhes</button>
@@ -640,13 +746,11 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Agendamento Manual */}
         {modalAgendamento && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Agendar Manualmente</h2>
-              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Insira os dados do cliente</div>
-              <form onSubmit={salvarAgendamentoManual} className="space-y-3">
+              <form onSubmit={salvarAgendamentoManual} className="space-y-3 mt-4">
                 <input type="text" placeholder="Nome do Cliente" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, cliente: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <input type="tel" placeholder="Telefone (ex: 13999999999)" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 
@@ -657,7 +761,7 @@ export default function AdminDashboard() {
 
                 <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, servico_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
                   <option value="">Qual o Serviço?</option>
-                  {servicos.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
+                  {servicos.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco_promocional || s.preco}</option>)}
                 </select>
                 
                 <div className="flex gap-3">
@@ -673,15 +777,13 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Novo Profissional */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Adicionar Profissional</h2>
-              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Insira os dados do novo membro da equipe</div>
-              <form onSubmit={salvarProfissional} className="space-y-3">
+              <form onSubmit={salvarProfissional} className="space-y-3 mt-4">
                 <input type="text" placeholder="Nome Completo" required onChange={e => setFormNovaEquipe({...formNovaEquipe, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="tel" placeholder="Telefone / WhatsApp (ex: 13999999999)" onChange={e => setFormNovaEquipe({...formNovaEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="tel" placeholder="Telefone / WhatsApp" onChange={e => setFormNovaEquipe({...formNovaEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <div className="flex gap-3 mt-6">
                   <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
                   <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Adicionar</button>
@@ -691,18 +793,16 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Transação */}
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Nova Movimentação</h2>
-              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Registre entradas extras ou despesas</div>
-              <form onSubmit={salvarTransacaoManual} className="space-y-3">
+              <form onSubmit={salvarTransacaoManual} className="space-y-3 mt-4">
                 <select required value={formTransacao.tipo} onChange={e => setFormTransacao({...formTransacao, tipo: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm font-semibold focus:border-[var(--brass)] outline-none">
                   <option value="SAIDA">Saída / Despesa</option>
                   <option value="ENTRADA">Entrada Extra</option>
                 </select>
-                <input type="text" placeholder="Descrição (ex: Pomada, Conta de Luz)" required onChange={e => setFormTransacao({...formTransacao, descricao: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="text" placeholder="Descrição" required onChange={e => setFormTransacao({...formTransacao, descricao: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <input type="number" step="0.01" placeholder="Valor (R$)" required onChange={e => setFormTransacao({...formTransacao, valor: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <div className="flex gap-3 mt-6">
                   <button type="button" onClick={() => setModalTransacao(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
