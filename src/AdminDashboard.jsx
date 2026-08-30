@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom';
 export default function AdminDashboard() {
   const navigate = useNavigate();
   
-  // Perfil do Usuário Logado (O Motor do SaaS)
   const [perfilUsuario, setPerfilUsuario] = useState(null);
 
   const [abaAtiva, setAbaAtiva] = useState('agenda');
@@ -16,16 +15,19 @@ export default function AdminDashboard() {
   const [agendamentos, setAgendamentos] = useState([]);
   const [transacoes, setTransacoes] = useState([]);
   const [servicos, setServicos] = useState([]);
+  const [equipe, setEquipe] = useState([]); // Novo estado para a Equipe
   const [loading, setLoading] = useState(true);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
+  const [modalEquipe, setModalEquipe] = useState(false); // Novo modal
 
-  const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', data: '', hora: '' });
+  // Atualizado para incluir o profissional_id
+  const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
+  const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' }); // Novo formulário
 
-  // 1. CHECAGEM DE SESSÃO E IDENTIFICAÇÃO DA EMPRESA (SaaS)
   useEffect(() => {
     async function inicializarSistema() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -35,7 +37,6 @@ export default function AdminDashboard() {
         return;
       }
 
-      // Descobre quem é o usuário, qual a empresa dele e o cargo
       const { data: perfil } = await supabase
         .from('barbeiros')
         .select('id, nome, cargo, empresa_id')
@@ -45,7 +46,7 @@ export default function AdminDashboard() {
       if (perfil) {
         setPerfilUsuario(perfil);
       } else {
-        alert("Erro: Seu usuário não está vinculado a uma empresa. Contate o suporte.");
+        alert("Erro: Seu usuário não está vinculado a uma empresa.");
         await supabase.auth.signOut();
         navigate('/admin');
       }
@@ -53,22 +54,26 @@ export default function AdminDashboard() {
     inicializarSistema();
   }, [navigate]);
 
-  // Dispara o carregamento dos dados SOMENTE APÓS descobrir a empresa do usuário
-  useEffect(() => { if (perfilUsuario) carregarDadosBase(); }, [perfilUsuario]);
-  useEffect(() => { if (perfilUsuario) carregarAgenda(); }, [filtroAgenda, perfilUsuario]);
   useEffect(() => { 
-    if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); 
-  }, [filtroFinanceiro, perfilUsuario]);
+    if (perfilUsuario) {
+      carregarDadosBase();
+      carregarEquipe();
+    }
+  }, [perfilUsuario]);
+  
+  useEffect(() => { if (perfilUsuario) carregarAgenda(); }, [filtroAgenda, perfilUsuario]);
+  useEffect(() => { if (perfilUsuario && perfilUsuario.cargo === 'dono') carregarFinanceiro(); }, [filtroFinanceiro, perfilUsuario]);
 
   async function carregarDadosBase() {
-    const { data } = await supabase.from('servicos')
-      .select('*')
-      .eq('empresa_id', perfilUsuario.empresa_id)
-      .eq('ativo', true);
+    const { data } = await supabase.from('servicos').select('*').eq('empresa_id', perfilUsuario.empresa_id).eq('ativo', true);
     if (data) setServicos(data);
   }
 
-  // 2. ISOLAMENTO DE DADOS (Puxa só o que for da empresa_id)
+  async function carregarEquipe() {
+    const { data } = await supabase.from('barbeiros').select('*').eq('empresa_id', perfilUsuario.empresa_id);
+    if (data) setEquipe(data);
+  }
+
   async function carregarAgenda() {
     setLoading(true);
     let inicio = new Date();
@@ -84,8 +89,8 @@ export default function AdminDashboard() {
     }
 
     const { data } = await supabase.from('agendamentos')
-      .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco)`)
-      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
+      .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco), barbeiros(nome)`)
+      .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora_inicio', inicio.toISOString())
       .lte('data_hora_inicio', fim.toISOString())
       .order('data_hora_inicio', { ascending: true });
@@ -109,12 +114,12 @@ export default function AdminDashboard() {
     }
 
     const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco), clientes(nome)`)
-      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
+      .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
       
     const { data: transacs } = await supabase.from('transacoes').select('*')
-      .eq('empresa_id', perfilUsuario.empresa_id) // Trava de Segurança SaaS
+      .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora', inicio.toISOString()).lte('data_hora', fim.toISOString());
 
     setFinanceiro(cortes || []);
@@ -127,14 +132,10 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
-  // 3. SALVANDO DADOS COM A ETIQUETA DA EMPRESA
   async function salvarAgendamentoManual(e) {
     e.preventDefault();
     let { data: cliente } = await supabase.from('clientes')
-      .select('id')
-      .eq('telefone', formNovoAgendamento.telefone)
-      .eq('empresa_id', perfilUsuario.empresa_id)
-      .maybeSingle();
+      .select('id').eq('telefone', formNovoAgendamento.telefone).eq('empresa_id', perfilUsuario.empresa_id).maybeSingle();
       
     if (!cliente) {
       const { data: novo } = await supabase.from('clientes')
@@ -149,7 +150,7 @@ export default function AdminDashboard() {
 
     await supabase.from('agendamentos').insert([{ 
       cliente_id: cliente.id, 
-      barbeiro_id: perfilUsuario.id, 
+      barbeiro_id: formNovoAgendamento.profissional_id || perfilUsuario.id, // Usa o selecionado ou o logado
       servico_id: serv.id, 
       empresa_id: perfilUsuario.empresa_id, 
       data_hora_inicio: inicioIso.toISOString(), 
@@ -164,18 +165,27 @@ export default function AdminDashboard() {
   async function salvarTransacaoManual(e) {
     e.preventDefault();
     await supabase.from('transacoes').insert([{ 
-      tipo: formTransacao.tipo, 
-      descricao: formTransacao.descricao, 
-      valor: formTransacao.valor,
-      empresa_id: perfilUsuario.empresa_id 
+      tipo: formTransacao.tipo, descricao: formTransacao.descricao, valor: formTransacao.valor, empresa_id: perfilUsuario.empresa_id 
     }]);
     setModalTransacao(false);
     carregarFinanceiro();
   }
 
+  // NOVA FUNÇÃO: Salvar novo membro da equipe
+  async function salvarProfissional(e) {
+    e.preventDefault();
+    await supabase.from('barbeiros').insert([{ 
+      nome: formNovaEquipe.nome, 
+      telefone: formNovaEquipe.telefone, 
+      empresa_id: perfilUsuario.empresa_id,
+      cargo: 'profissional'
+    }]);
+    setModalEquipe(false);
+    carregarEquipe();
+  }
+
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
 
-  // Cálculos do Financeiro
   const listaEntradasCortes = financeiro.map(ag => ({
     id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
     subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco || 0),
@@ -247,9 +257,11 @@ export default function AdminDashboard() {
           <div className="flex flex-row md:flex-col gap-2">
             <button onClick={() => setAbaAtiva('agenda')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'agenda' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Agenda</button>
             
-            {/* CONTROLE DE ACESSO: SÓ O DONO VÊ O BOTÃO FINANCEIRO */}
             {perfilUsuario?.cargo === 'dono' && (
-              <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
+              <>
+                <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'financeiro' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
+                <button onClick={() => setAbaAtiva('equipe')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all ${abaAtiva === 'equipe' ? 'bg-[rgba(201,162,75,0.10)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.25)]' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Equipe</button>
+              </>
             )}
           </div>
           
@@ -266,15 +278,21 @@ export default function AdminDashboard() {
             <div>
               <div className="font-mono text-[11px] tracking-[.14em] uppercase text-[var(--brass)] mb-2">Painel de Gestão</div>
               <h1 className="font-fraunces font-extrabold text-[28px] m-0 tracking-[-.01em]">
-                {abaAtiva === 'agenda' ? 'Sua Agenda' : 'Relatório Financeiro'}
+                {abaAtiva === 'agenda' ? 'Sua Agenda' : abaAtiva === 'financeiro' ? 'Relatório Financeiro' : 'Sua Equipe'}
               </h1>
             </div>
             
             <div className="w-full sm:w-auto text-right flex gap-2">
-              <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
-                + Novo agendamento
-              </button>
-              {/* CONTROLE DE ACESSO: SÓ O DONO PODE LANÇAR MOVIMENTAÇÕES MANUAIS NO CAIXA */}
+              {abaAtiva === 'equipe' ? (
+                <button onClick={() => setModalEquipe(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                  + Novo Profissional
+                </button>
+              ) : (
+                <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                  + Novo agendamento
+                </button>
+              )}
+              
               {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && (
                 <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[rgba(201,162,75,0.1)] transition-colors shadow-lg">
                   + Lançar Transação
@@ -287,7 +305,7 @@ export default function AdminDashboard() {
             <>
               {/* ABA: AGENDA */}
               {abaAtiva === 'agenda' && (
-                <div className="animate-fade-in max-w-4xl">
+                <div className="animate-fade-in max-w-5xl">
                   <div className="flex gap-2 overflow-x-auto hide-scroll pb-4 mb-2">
                     <button onClick={() => setFiltroAgenda('hoje')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroAgenda === 'hoje' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Hoje</button>
                     <button onClick={() => setFiltroAgenda('amanha')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroAgenda === 'amanha' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Amanhã</button>
@@ -306,11 +324,12 @@ export default function AdminDashboard() {
                       <div className="text-center py-8 text-[var(--paper-dim)] font-mono text-xs">Agenda livre para este período.</div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full border-collapse min-w-[550px]">
+                        <table className="w-full border-collapse min-w-[650px]">
                           <thead>
                             <tr>
                               <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pl-2">Data / Hora</th>
                               <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Cliente</th>
+                              <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Profissional</th>
                               <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Serviço & Valor</th>
                               <th className="text-right font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pr-2">Ações / Status</th>
                             </tr>
@@ -342,6 +361,9 @@ export default function AdminDashboard() {
                                     {ag.clientes?.nome}
                                     <div className="text-[10.5px] text-[var(--paper-dim)] font-mono mt-1">{ag.clientes?.telefone}</div>
                                   </td>
+                                  <td className="py-3 border-b border-[var(--line)] text-[12.5px] text-[var(--paper)]">
+                                    {ag.barbeiros?.nome || 'Não atribuído'}
+                                  </td>
                                   <td className="py-3 border-b border-[var(--line)]">
                                     <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
                                     <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(ag.servicos?.preco).toFixed(2)}</div>
@@ -369,10 +391,39 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              {/* ABA: EQUIPE (Protegida) */}
+              {abaAtiva === 'equipe' && perfilUsuario?.cargo === 'dono' && (
+                <div className="animate-fade-in max-w-4xl">
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
+                    <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
+                      <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Profissionais Cadastrados</span>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]">
+                        <span className="text-[var(--brass-bright)] font-bold">{equipe.length}</span> Membros na Equipe
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      {equipe.map(membro => (
+                        <div key={membro.id} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
+                          <div>
+                            <div className="text-[14px] font-semibold text-[var(--paper)]">{membro.nome}</div>
+                            <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">{membro.telefone || 'Sem telefone'}</div>
+                          </div>
+                          <div>
+                            <span className={`text-[10px] font-bold py-1 px-2.5 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]'}`}>
+                              {membro.cargo}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* ABA: FINANCEIRO (Protegida) */}
               {abaAtiva === 'financeiro' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-5xl">
-                  
                   <div className="flex gap-2 overflow-x-auto hide-scroll pb-4 mb-2">
                     <button onClick={() => setFiltroFinanceiro('hoje')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroFinanceiro === 'hoje' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Hoje</button>
                     <button onClick={() => setFiltroFinanceiro('este_mes')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroFinanceiro === 'este_mes' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Este Mês</button>
@@ -422,23 +473,22 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAL: Detalhes Financeiros (Extrato) */}
+        {/* MODAIS AQUI EMBAIXO */}
+
+        {/* MODAL: Detalhes Financeiros */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
               <div className="flex justify-between items-start mb-6 border-b border-[var(--line)] pb-4">
                 <div>
                   <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{tituloDetalhes}</h2>
-                  <div className="text-[11px] text-[var(--paper-dim)] font-mono">
-                    Período: {filtroFinanceiro.replace('_', ' ').toUpperCase()}
-                  </div>
+                  <div className="text-[11px] text-[var(--paper-dim)] font-mono">Período: {filtroFinanceiro.replace('_', ' ').toUpperCase()}</div>
                 </div>
                 <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-xl font-bold p-2">&times;</button>
               </div>
-
               <div className="overflow-y-auto flex-1 hide-scroll pr-2 space-y-3">
                 {detalhesAtuais.length === 0 ? (
-                  <div className="text-center py-10 text-[var(--paper-dim)] font-mono text-xs">Nenhuma movimentação encontrada.</div>
+                  <div className="text-center py-10 text-[var(--paper-dim)] font-mono text-xs">Nenhuma movimentação.</div>
                 ) : (
                   detalhesAtuais.map((item, idx) => {
                     const d = new Date(item.data);
@@ -461,7 +511,6 @@ export default function AdminDashboard() {
                   })
                 )}
               </div>
-
               <div className="mt-6 pt-4 border-t border-[var(--line)] flex justify-end">
                 <button onClick={() => setModalDetalhes(null)} className="py-2.5 px-6 border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Fechar Detalhes</button>
               </div>
@@ -469,7 +518,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Agendamento Manual */}
+        {/* MODAL: Agendamento Manual (Agora com seleção de equipe) */}
         {modalAgendamento && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
@@ -478,10 +527,17 @@ export default function AdminDashboard() {
               <form onSubmit={salvarAgendamentoManual} className="space-y-3">
                 <input type="text" placeholder="Nome do Cliente" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, cliente: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <input type="tel" placeholder="Telefone (ex: 13999999999)" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                
+                <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, profissional_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                  <option value="">Quem vai atender?</option>
+                  {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+
                 <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, servico_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
-                  <option value="">Selecione o Serviço...</option>
+                  <option value="">Qual o Serviço?</option>
                   {servicos.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
                 </select>
+                
                 <div className="flex gap-3">
                   <input type="date" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, data: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
                   <input type="time" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, hora: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
@@ -489,6 +545,24 @@ export default function AdminDashboard() {
                 <div className="flex gap-3 mt-6">
                   <button type="button" onClick={() => setModalAgendamento(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
                   <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Confirmar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: Novo Profissional da Equipe */}
+        {modalEquipe && perfilUsuario?.cargo === 'dono' && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
+              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Adicionar Profissional</h2>
+              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Insira os dados do novo membro da equipe</div>
+              <form onSubmit={salvarProfissional} className="space-y-3">
+                <input type="text" placeholder="Nome Completo" required onChange={e => setFormNovaEquipe({...formNovaEquipe, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="tel" placeholder="Telefone / WhatsApp (ex: 13999999999)" onChange={e => setFormNovaEquipe({...formNovaEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Adicionar</button>
                 </div>
               </form>
             </div>
