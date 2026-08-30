@@ -45,6 +45,10 @@ export default function SuperAdmin() {
     setLoading(false);
   }
 
+  async function renovarAssinatura(id, nome) {
+    const confirmar = window.confirm(`Deseja adicionar +30 dias de acesso para a barbearia "${nome}"?`);
+    if (!confirmar) return;
+
     // Calcula a data de hoje + 30 dias
     const novaData = new Date();
     novaData.setDate(novaData.getDate() + 30);
