@@ -105,7 +105,7 @@ export default function Home() {
       {/* CABEÇALHO */}
       <header className="relative z-10 flex justify-between items-center p-6 lg:px-20 border-b border-[#C9A24B]/20 bg-black/30 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <img src="/logo.jpg" alt="Maggia Logo" className="h-10 rounded object-contain mix-blend-lighten" />
+          <img src="/logomaggia.JPG" alt="Maggia Logo" className="h-10 rounded object-contain mix-blend-lighten" />
           <span className="font-fraunces font-bold text-xl tracking-widest text-gold-bright">MAGGIA</span>
         </div>
         <button onClick={() => navigate('/admin')} className="font-mono text-[11px] uppercase tracking-widest text-gold hover:text-white transition-colors border border-gold/30 px-5 py-2.5 rounded hover:bg-gold/10">
