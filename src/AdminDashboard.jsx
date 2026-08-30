@@ -6,7 +6,6 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   
   const [perfilUsuario, setPerfilUsuario] = useState(null);
-
   const [abaAtiva, setAbaAtiva] = useState('agenda');
   const [filtroAgenda, setFiltroAgenda] = useState('hoje');
   const [filtroFinanceiro, setFiltroFinanceiro] = useState('este_mes');
@@ -15,18 +14,17 @@ export default function AdminDashboard() {
   const [agendamentos, setAgendamentos] = useState([]);
   const [transacoes, setTransacoes] = useState([]);
   const [servicos, setServicos] = useState([]);
-  const [equipe, setEquipe] = useState([]); // Novo estado para a Equipe
+  const [equipe, setEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
-  const [modalEquipe, setModalEquipe] = useState(false); // Novo modal
+  const [modalEquipe, setModalEquipe] = useState(false);
 
-  // Atualizado para incluir o profissional_id
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
-  const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' }); // Novo formulário
+  const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' });
 
   useEffect(() => {
     async function inicializarSistema() {
@@ -150,7 +148,7 @@ export default function AdminDashboard() {
 
     await supabase.from('agendamentos').insert([{ 
       cliente_id: cliente.id, 
-      barbeiro_id: formNovoAgendamento.profissional_id || perfilUsuario.id, // Usa o selecionado ou o logado
+      barbeiro_id: formNovoAgendamento.profissional_id || perfilUsuario.id,
       servico_id: serv.id, 
       empresa_id: perfilUsuario.empresa_id, 
       data_hora_inicio: inicioIso.toISOString(), 
@@ -171,15 +169,10 @@ export default function AdminDashboard() {
     carregarFinanceiro();
   }
 
-  // NOVA FUNÇÃO: Salvar novo membro da equipe (Com aviso de Erros)
   async function salvarProfissional(e) {
     e.preventDefault();
-    
     const { error } = await supabase.from('barbeiros').insert([{ 
-      nome: formNovaEquipe.nome, 
-      telefone: formNovaEquipe.telefone, 
-      empresa_id: perfilUsuario.empresa_id,
-      cargo: 'profissional'
+      nome: formNovaEquipe.nome, telefone: formNovaEquipe.telefone, empresa_id: perfilUsuario.empresa_id, cargo: 'profissional'
     }]);
 
     if (error) {
@@ -187,12 +180,33 @@ export default function AdminDashboard() {
       console.error(error);
     } else {
       setModalEquipe(false);
-      setFormNovaEquipe({ nome: '', telefone: '' }); // Limpa o formulário
+      setFormNovaEquipe({ nome: '', telefone: '' });
       carregarEquipe();
     }
   }
 
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
+
+  // Função do WhatsApp Semi-Automático
+  function enviarWhatsApp(ag) {
+    const telefone = ag.clientes?.telefone || '';
+    if (!telefone) return alert("Cliente sem telefone cadastrado.");
+
+    // Limpa o número e garante o código 55 (Brasil)
+    const numeroLimpo = telefone.replace(/\D/g, '');
+    const numeroFinal = numeroLimpo.startsWith('55') ? numeroLimpo : `55${numeroLimpo}`;
+
+    const dataObj = new Date(ag.data_hora_inicio);
+    const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+    const nomeCliente = ag.clientes?.nome.split(' ')[0] || 'chefe';
+    const barbeiroNome = ag.barbeiros?.nome.split(' ')[0] || 'nossa equipe';
+    const servico = ag.servicos?.nome;
+
+    const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário de ${servico} hoje às ${hora} com ${barbeiroNome}. Te aguardamos, chefe!`;
+    const link = `https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`;
+    
+    window.open(link, '_blank');
+  }
 
   const listaEntradasCortes = financeiro.map(ag => ({
     id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço',
@@ -332,7 +346,7 @@ export default function AdminDashboard() {
                       <div className="text-center py-8 text-[var(--paper-dim)] font-mono text-xs">Agenda livre para este período.</div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full border-collapse min-w-[650px]">
+                        <table className="w-full border-collapse min-w-[700px]">
                           <thead>
                             <tr>
                               <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pl-2">Data / Hora</th>
@@ -383,6 +397,9 @@ export default function AdminDashboard() {
                                       <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>
                                     ) : (
                                       <div className="flex justify-end gap-2">
+                                        <button onClick={() => enviarWhatsApp(ag)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 hover:bg-[#25D366] hover:text-black transition-colors" title="Enviar WhatsApp">
+                                          WhatsApp
+                                        </button>
                                         <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">Cancelar</button>
                                         <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">✔ Concluir</button>
                                       </div>
@@ -483,7 +500,6 @@ export default function AdminDashboard() {
 
         {/* MODAIS AQUI EMBAIXO */}
 
-        {/* MODAL: Detalhes Financeiros */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -526,7 +542,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Agendamento Manual (Agora com seleção de equipe) */}
         {modalAgendamento && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
@@ -559,7 +574,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Novo Profissional da Equipe */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
@@ -577,7 +591,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL: Transação (Visível só pro dono) */}
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
