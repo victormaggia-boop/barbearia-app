@@ -5,14 +5,11 @@ import { useNavigate } from 'react-router-dom';
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
-  // Controle de Telas: 'LOGIN', 'RECUPERAR' (Pedir Link), 'NOVA_SENHA' (Após clicar no link)
   const [view, setView] = useState('LOGIN'); 
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // Escuta se o usuário chegou aqui através do link de "Recuperar Senha" do e-mail
   useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
@@ -39,7 +36,6 @@ export default function AdminLogin() {
     e.preventDefault();
     setLoading(true);
     setStatus('Enviando link...');
-    // Manda o e-mail de recuperação usando a URL atual do site
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin + '/admin',
     });
@@ -76,15 +72,17 @@ export default function AdminLogin() {
       <style>{brandStyles}</style>
       <div className="brand-theme relative min-h-screen flex flex-col justify-center items-center p-4 overflow-hidden bg-black">
         
+        {/* VÍDEO DE FUNDO - Verifique se a extensão é .mp4 ou .MP4 e ajuste abaixo */}
         <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50 mix-blend-screen">
-          <source src="/slogan.MP4" type="video/mp4" />
+          <source src="/slogan.mp4" type="video/mp4" />
         </video>
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--tech-dark)] via-black/50 to-[var(--tech-dark)] z-0"></div>
 
         <div className="w-full max-w-md bg-black/70 border border-[var(--line)] p-8 sm:p-10 rounded-2xl shadow-[0_0_40px_rgba(201,162,75,0.1)] relative z-10 backdrop-blur-xl">
           
           <div className="text-center mb-8 flex flex-col items-center">
-            <img src="/logomaggia.JPG" alt="Maggia Logo" className="h-14 object-contain mb-3 rounded-md opacity-90 mix-blend-lighten" />
+            {/* LOGO - Verifique se a extensão é .jpg, .png ou .JPG e ajuste abaixo */}
+            <img src="/logomaggia.jpg" alt="Maggia Logo" className="h-14 object-contain mb-3 rounded-md opacity-90 mix-blend-lighten" />
             <h2 className="font-extrabold text-xl tracking-widest text-white uppercase m-0">Plataforma</h2>
             <p className="font-mono text-[var(--maggia-gold)] tracking-[0.15em] text-[10px] uppercase mt-2">Tecnologia & SaaS</p>
           </div>
@@ -132,7 +130,7 @@ export default function AdminLogin() {
             </form>
           )}
 
-          {/* MODO 3: DEFINIR NOVA SENHA (APARECE QUANDO CLICA NO LINK DO E-MAIL) */}
+          {/* MODO 3: DEFINIR NOVA SENHA */}
           {view === 'NOVA_SENHA' && (
             <form onSubmit={handleAtualizarSenha} className="space-y-5">
               <div className="text-center text-sm text-[var(--maggia-gold)] font-bold mb-4">
