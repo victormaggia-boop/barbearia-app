@@ -17,6 +17,9 @@ export default function AdminDashboard() {
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
+  
+  // Novo estado para o Modal de Detalhes Financeiros ('ENTRADAS' | 'SAIDAS' | 'GERAL' | null)
+  const [modalDetalhes, setModalDetalhes] = useState(null);
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
@@ -58,7 +61,6 @@ export default function AdminDashboard() {
     }
 
     const { data } = await supabase.from('agendamentos')
-      // Adicionado a busca do 'preco' do servico
       .select(`id, data_hora_inicio, status, clientes(nome, telefone), servicos(nome, duracao_minutos, preco)`)
       .gte('data_hora_inicio', inicio.toISOString())
       .lte('data_hora_inicio', fim.toISOString())
@@ -82,8 +84,8 @@ export default function AdminDashboard() {
       fim = new Date(fim.getFullYear(), fim.getMonth(), 0, 23, 59, 59);
     }
 
-    // Puxa tanto confirmados quanto concluídos para o caixa
-    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, servicos(preco), data_hora_inicio`)
+    // Buscando mais detalhes: clientes(nome) e servicos(nome, preco)
+    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco), clientes(nome)`)
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
       
@@ -94,7 +96,6 @@ export default function AdminDashboard() {
     setTransacoes(transacs || []);
   }
 
-  // --- NOVA FUNÇÃO: Marcar como Concluído ---
   async function alterarStatus(id, novoStatus) {
     await supabase.from('agendamentos').update({ status: novoStatus }).eq('id', id);
     carregarAgenda();
@@ -127,11 +128,45 @@ export default function AdminDashboard() {
 
   async function handleSair() { await supabase.auth.signOut(); navigate('/login'); }
 
-  const receitaCortes = financeiro.reduce((acc, curr) => acc + Number(curr.servicos?.preco || 0), 0);
-  const entradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').reduce((acc, curr) => acc + Number(curr.valor), 0);
-  const totalSaidas = transacoes.filter(t => t.tipo === 'SAIDA').reduce((acc, curr) => acc + Number(curr.valor), 0);
-  
-  const totalEntradas = receitaCortes + entradasExtras;
+  // Processamento de Listas para o Extrato Detalhado
+  const listaEntradasCortes = financeiro.map(ag => ({
+    id: ag.id,
+    data: ag.data_hora_inicio,
+    titulo: ag.servicos?.nome || 'Serviço',
+    subtitulo: ag.clientes?.nome || 'Cliente não identificado',
+    valor: Number(ag.servicos?.preco || 0),
+    tipo: 'ENTRADA',
+    tag: 'Serviço'
+  }));
+
+  const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({
+    id: t.id,
+    data: t.data_hora,
+    titulo: t.descricao,
+    subtitulo: 'Entrada Extra',
+    valor: Number(t.valor),
+    tipo: 'ENTRADA',
+    tag: 'Extra'
+  }));
+
+  const listaSaidas = transacoes.filter(t => t.tipo === 'SAIDA').map(t => ({
+    id: t.id,
+    data: t.data_hora,
+    titulo: t.descricao,
+    subtitulo: 'Despesa / Pagamento',
+    valor: Number(t.valor),
+    tipo: 'SAIDA',
+    tag: 'Saída'
+  }));
+
+  // Ordena por data (mais recente primeiro)
+  const todasEntradas = [...listaEntradasCortes, ...listaEntradasExtras].sort((a,b) => new Date(b.data) - new Date(a.data));
+  const todasSaidas = [...listaSaidas].sort((a,b) => new Date(b.data) - new Date(a.data));
+  const todasMovimentacoes = [...todasEntradas, ...todasSaidas].sort((a,b) => new Date(b.data) - new Date(a.data));
+
+  // Cálculos de Totais
+  const totalEntradas = todasEntradas.reduce((acc, curr) => acc + curr.valor, 0);
+  const totalSaidas = todasSaidas.reduce((acc, curr) => acc + curr.valor, 0);
   const saldoLiquido = totalEntradas - totalSaidas;
 
   const dadosGrafico = {};
@@ -140,6 +175,20 @@ export default function AdminDashboard() {
     dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(ag.servicos?.preco || 0);
   });
   const maxFaturamentoDia = Math.max(...Object.values(dadosGrafico), 1);
+
+  // Seleciona qual lista renderizar no modal de detalhes
+  let detalhesAtuais = [];
+  let tituloDetalhes = '';
+  if (modalDetalhes === 'ENTRADAS') {
+    detalhesAtuais = todasEntradas;
+    tituloDetalhes = 'Detalhamento de Entradas';
+  } else if (modalDetalhes === 'SAIDAS') {
+    detalhesAtuais = todasSaidas;
+    tituloDetalhes = 'Detalhamento de Saídas';
+  } else if (modalDetalhes === 'GERAL') {
+    detalhesAtuais = todasMovimentacoes;
+    tituloDetalhes = 'Extrato Geral';
+  }
 
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
@@ -203,7 +252,6 @@ export default function AdminDashboard() {
               {/* ABA: AGENDA */}
               {abaAtiva === 'agenda' && (
                 <div className="animate-fade-in max-w-4xl">
-                  
                   <div className="flex gap-2 overflow-x-auto hide-scroll pb-4 mb-2">
                     <button onClick={() => setFiltroAgenda('hoje')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroAgenda === 'hoje' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Hoje</button>
                     <button onClick={() => setFiltroAgenda('amanha')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroAgenda === 'amanha' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Amanhã</button>
@@ -211,12 +259,10 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
-                    
-                    {/* Contador Rápido */}
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
                       <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Resumo do Período</span>
                       <div className="font-mono text-[11px] text-[var(--paper-dim)]">
-                        <span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes no total · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos
+                        <span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos
                       </div>
                     </div>
 
@@ -246,8 +292,6 @@ export default function AdminDashboard() {
 
                               return (
                                 <tr key={ag.id} className={`${isCancelado ? 'opacity-40' : ''} hover:bg-[var(--leather-3)] transition-colors`}>
-                                  
-                                  {/* Célula de Data (Estilo do Site) */}
                                   <td className="py-3 px-2 border-b border-[var(--line)]">
                                     <div className="flex items-center gap-3">
                                       <div className="flex flex-col items-center justify-center bg-[var(--leather-3)] border border-[var(--line)] rounded-[5px] w-[46px] h-[52px] shrink-0">
@@ -258,19 +302,14 @@ export default function AdminDashboard() {
                                       <span className="font-mono text-[var(--copper-bright)] text-[15px] font-bold">{hora}</span>
                                     </div>
                                   </td>
-
                                   <td className="py-3 border-b border-[var(--line)] font-semibold text-[13px] text-[var(--paper)]">
                                     {ag.clientes?.nome}
                                     <div className="text-[10.5px] text-[var(--paper-dim)] font-mono mt-1">{ag.clientes?.telefone}</div>
                                   </td>
-                                  
-                                  {/* Serviço e Preço */}
                                   <td className="py-3 border-b border-[var(--line)]">
                                     <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
                                     <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(ag.servicos?.preco).toFixed(2)}</div>
                                   </td>
-                                  
-                                  {/* Botões de Ação */}
                                   <td className="py-3 px-2 border-b border-[var(--line)] text-right">
                                     {isCancelado ? (
                                       <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]">Cancelado</span>
@@ -278,12 +317,8 @@ export default function AdminDashboard() {
                                       <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>
                                     ) : (
                                       <div className="flex justify-end gap-2">
-                                        <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">
-                                          Cancelar
-                                        </button>
-                                        <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">
-                                          ✔ Concluir
-                                        </button>
+                                        <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">Cancelar</button>
+                                        <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">✔ Concluir</button>
                                       </div>
                                     )}
                                   </td>
@@ -308,17 +343,18 @@ export default function AdminDashboard() {
                     <button onClick={() => setFiltroFinanceiro('mes_passado')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroFinanceiro === 'mes_passado' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Mês Passado</button>
                   </div>
 
+                  {/* Stat Cards - Agora Clicáveis */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                    <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Entradas Totais</div>
+                    <div onClick={() => setModalDetalhes('ENTRADAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--brass)] transition-all group">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--brass-bright)] transition-colors">Entradas Totais <span>Ver →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--brass-bright)]">R$ {totalEntradas.toFixed(2)}</div>
                     </div>
-                    <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Saídas / Despesas</div>
+                    <div onClick={() => setModalDetalhes('SAIDAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--copper-bright)] transition-all group">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--copper-bright)] transition-colors">Saídas / Despesas <span>Ver →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--copper-bright)]">R$ {totalSaidas.toFixed(2)}</div>
                     </div>
-                    <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Saldo Líquido</div>
+                    <div onClick={() => setModalDetalhes('GERAL')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--paper)] transition-all group">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--paper)] transition-colors">Saldo Líquido <span>Ver Extrato →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--paper)]">R$ {saldoLiquido.toFixed(2)}</div>
                     </div>
                   </div>
@@ -351,7 +387,60 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAL: Agendamento */}
+        {/* MODAL: Detalhes Financeiros (Extrato) */}
+        {modalDetalhes && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
+              
+              <div className="flex justify-between items-start mb-6 border-b border-[var(--line)] pb-4">
+                <div>
+                  <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{tituloDetalhes}</h2>
+                  <div className="text-[11px] text-[var(--paper-dim)] font-mono">
+                    Período selecionado: {filtroFinanceiro.replace('_', ' ').toUpperCase()}
+                  </div>
+                </div>
+                <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-xl font-bold p-2">&times;</button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 hide-scroll pr-2 space-y-3">
+                {detalhesAtuais.length === 0 ? (
+                  <div className="text-center py-10 text-[var(--paper-dim)] font-mono text-xs">Nenhuma movimentação encontrada.</div>
+                ) : (
+                  detalhesAtuais.map((item, idx) => {
+                    const d = new Date(item.data);
+                    const isEntrada = item.tipo === 'ENTRADA';
+                    return (
+                      <div key={idx} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${isEntrada ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)]' : 'bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)]'}`}>
+                              {item.tag}
+                            </span>
+                            <span className="text-[10px] font-mono text-[var(--paper-dim)]">
+                              {d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'})} · {d.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
+                            </span>
+                          </div>
+                          <div className="text-[13px] font-semibold text-[var(--paper)] mt-1.5">{item.titulo}</div>
+                          <div className="text-[11px] text-[var(--paper-dim)] mt-0.5">{item.subtitulo}</div>
+                        </div>
+                        <div className={`font-mono text-[14px] font-bold ${isEntrada ? 'text-[var(--brass-bright)]' : 'text-[var(--copper-bright)]'}`}>
+                          {isEntrada ? '+' : '-'} R$ {item.valor.toFixed(2)}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-[var(--line)] flex justify-end">
+                <button onClick={() => setModalDetalhes(null)} className="py-2.5 px-6 border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Fechar Detalhes</button>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: Agendamento Manual */}
         {modalAgendamento && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
