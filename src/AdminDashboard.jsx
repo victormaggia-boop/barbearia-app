@@ -26,8 +26,11 @@ export default function AdminDashboard() {
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
-  const [formNovaEquipe, setFormNovaEquipe] = useState({ nome: '', telefone: '' });
   
+  // Estado para Criar / Editar Profissional
+  const [membroEditandoId, setMembroEditandoId] = useState(null);
+  const [formEquipe, setFormEquipe] = useState({ nome: '', telefone: '', email: '' });
+
   // Estado para Criar / Editar Serviço
   const [servicoEditandoId, setServicoEditandoId] = useState(null);
   const [formServico, setFormServico] = useState({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
@@ -141,6 +144,46 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
+  // Funções de Equipe (Criar e Editar)
+  function abrirModalCriarEquipe() {
+    setMembroEditandoId(null);
+    setFormEquipe({ nome: '', telefone: '', email: '' });
+    setModalEquipe(true);
+  }
+
+  function abrirModalEditarEquipe(membro) {
+    setMembroEditandoId(membro.id);
+    setFormEquipe({
+      nome: membro.nome || '',
+      telefone: membro.telefone || '',
+      email: membro.email || ''
+    });
+    setModalEquipe(true);
+  }
+
+  async function salvarProfissional(e) {
+    e.preventDefault();
+    const dados = {
+      nome: formEquipe.nome,
+      telefone: formEquipe.telefone,
+      email: formEquipe.email ? formEquipe.email.trim().toLowerCase() : null,
+      empresa_id: perfilUsuario.empresa_id,
+      cargo: 'profissional'
+    };
+
+    if (membroEditandoId) {
+      const { error } = await supabase.from('barbeiros').update(dados).eq('id', membroEditandoId);
+      if (error) alert("Erro ao atualizar profissional: " + error.message);
+    } else {
+      const { error } = await supabase.from('barbeiros').insert([dados]);
+      if (error) alert("Erro ao adicionar profissional: " + error.message);
+    }
+
+    setModalEquipe(false);
+    carregarEquipe();
+  }
+
+  // Funções de Serviços
   function abrirModalCriarServico() {
     setServicoEditandoId(null);
     setFormServico({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
@@ -190,7 +233,6 @@ export default function AdminDashboard() {
       servicoId = novo.id;
     }
 
-    // Salva a duração individual de cada profissional para este serviço
     for (const barbeiroId of Object.keys(temposPorProfissional)) {
       const duracao = Number(temposPorProfissional[barbeiroId]);
       await supabase.from('barbeiro_servicos').upsert({
@@ -225,7 +267,6 @@ export default function AdminDashboard() {
     const profId = formNovoAgendamento.profissional_id || perfilUsuario.id;
     const serv = servicos.find(s => s.id === formNovoAgendamento.servico_id);
 
-    // Busca a duração customizada para aquele profissional específico
     const duracCustom = duracoesEquipe.find(d => d.servico_id === serv.id && d.barbeiro_id === profId);
     const duracaoFinal = duracCustom ? duracCustom.duracao_minutos : (serv.duracao_minutos || 30);
 
@@ -255,20 +296,6 @@ export default function AdminDashboard() {
     carregarFinanceiro();
   }
 
-  async function salvarProfissional(e) {
-    e.preventDefault();
-    const { error } = await supabase.from('barbeiros').insert([{ 
-      nome: formNovaEquipe.nome, telefone: formNovaEquipe.telefone, empresa_id: perfilUsuario.empresa_id, cargo: 'profissional'
-    }]);
-
-    if (error) alert("Erro: " + error.message);
-    else {
-      setModalEquipe(false);
-      setFormNovaEquipe({ nome: '', telefone: '' });
-      carregarEquipe();
-    }
-  }
-
   async function handleSair() { await supabase.auth.signOut(); navigate('/admin'); }
 
   function enviarWhatsApp(ag) {
@@ -286,7 +313,6 @@ export default function AdminDashboard() {
     window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
-  // Cálculos Financeiros com suporte a Preço Promocional
   const listaEntradasCortes = financeiro.map(ag => {
     const valorCobrado = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
     return {
@@ -394,7 +420,7 @@ export default function AdminDashboard() {
                   + Novo Serviço
                 </button>
               ) : abaAtiva === 'equipe' ? (
-                <button onClick={() => setModalEquipe(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
+                <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:bg-[var(--brass-bright)] transition-colors shadow-lg">
                   + Novo Profissional
                 </button>
               ) : (
@@ -503,7 +529,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: SERVIÇOS (Editar + Preço Promocional) */}
+              {/* ABA: SERVIÇOS */}
               {abaAtiva === 'servicos' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
@@ -557,7 +583,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: EQUIPE */}
+              {/* ABA: EQUIPE (Agora com Edição e E-mail) */}
               {abaAtiva === 'equipe' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
@@ -569,11 +595,18 @@ export default function AdminDashboard() {
                       {equipe.map(membro => (
                         <div key={membro.id} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
                           <div>
-                            <div className="text-[14px] font-semibold text-[var(--paper)]">{membro.nome}</div>
-                            <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">{membro.telefone || 'Sem telefone'}</div>
+                            <div className="text-[14px] font-semibold text-[var(--paper)] flex items-center gap-2">
+                              {membro.nome}
+                              <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)]'}`}>{membro.cargo}</span>
+                            </div>
+                            <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">
+                              {membro.telefone || 'Sem telefone'} · <span className="text-[var(--brass-bright)]">{membro.email || 'Sem e-mail cadastrado'}</span>
+                            </div>
                           </div>
                           <div>
-                            <span className={`text-[10px] font-bold py-1 px-2.5 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]'}`}>{membro.cargo}</span>
+                            <button onClick={() => abrirModalEditarEquipe(membro)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">
+                              Editar
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -636,7 +669,28 @@ export default function AdminDashboard() {
 
         {/* MODAIS */}
 
-        {/* MODAL: Criar / Editar Serviço + Duração por Profissional */}
+        {/* MODAL: Criar / Editar Profissional */}
+        {modalEquipe && perfilUsuario?.cargo === 'dono' && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
+              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">
+                {membroEditandoId ? 'Editar Profissional' : 'Adicionar Profissional'}
+              </h2>
+              <div className="text-[11px] text-[var(--paper-dim)] mb-5">Informe os dados para vincular o acesso</div>
+              <form onSubmit={salvarProfissional} className="space-y-3">
+                <input type="text" placeholder="Nome Completo" required value={formEquipe.nome} onChange={e => setFormEquipe({...formEquipe, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="tel" placeholder="Telefone / WhatsApp" value={formEquipe.telefone} onChange={e => setFormEquipe({...formEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="email" placeholder="E-mail (Necessário para a conta de Acesso)" required value={formEquipe.email} onChange={e => setFormEquipe({...formEquipe, email: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Salvar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: Criar / Editar Serviço */}
         {modalServico && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -673,7 +727,6 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                {/* Seção: Tempo Individual por Profissional */}
                 {equipe.length > 0 && (
                   <div className="pt-3 border-t border-[var(--line)]">
                     <label className="block text-[11px] font-mono text-[var(--brass-bright)] uppercase mb-2">Tempo por Profissional (Minutos)</label>
@@ -771,22 +824,6 @@ export default function AdminDashboard() {
                 <div className="flex gap-3 mt-6">
                   <button type="button" onClick={() => setModalAgendamento(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
                   <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Confirmar</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {modalEquipe && perfilUsuario?.cargo === 'dono' && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
-              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Adicionar Profissional</h2>
-              <form onSubmit={salvarProfissional} className="space-y-3 mt-4">
-                <input type="text" placeholder="Nome Completo" required onChange={e => setFormNovaEquipe({...formNovaEquipe, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="tel" placeholder="Telefone / WhatsApp" onChange={e => setFormNovaEquipe({...formNovaEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <div className="flex gap-3 mt-6">
-                  <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
-                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:bg-[var(--brass-bright)] transition-colors">Adicionar</button>
                 </div>
               </form>
             </div>

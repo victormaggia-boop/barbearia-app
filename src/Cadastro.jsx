@@ -91,7 +91,7 @@ export default function Cadastro() {
           playsInline 
           className="absolute inset-0 w-full h-full object-cover z-0 opacity-50 mix-blend-screen"
         >
-          <source src="/slogan.MP4" type="video/mp4" />
+          <source src="/slogan.mp4" type="video/mp4" />
         </video>
 
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--tech-dark)] via-black/50 to-[var(--tech-dark)] z-0"></div>
