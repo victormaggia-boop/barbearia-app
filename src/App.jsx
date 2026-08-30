@@ -9,10 +9,16 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Booking />} />
+        {/* Futura Landing Page da Maggia vai ficar aqui no "/" */}
+        <Route path="/" element={<div className="bg-black min-h-screen text-white flex items-center justify-center font-mono">Página Inicial da Maggia em construção...</div>} />
+        
+        {/* Rotas de Sistema */}
         <Route path="/admin" element={<AdminLogin />} />
         <Route path="/cadastro" element={<Cadastro />} />
         <Route path="/dashboard" element={<AdminDashboard />} />
+        
+        {/* Rota Dinâmica da Barbearia (Ex: /barber-halley) - DEVE FICAR POR ÚLTIMO */}
+        <Route path="/:slug" element={<Booking />} />
       </Routes>
     </Router>
   );
