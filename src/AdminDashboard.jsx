@@ -27,11 +27,9 @@ export default function AdminDashboard() {
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   
-  // Estado para Criar / Editar Profissional
   const [membroEditandoId, setMembroEditandoId] = useState(null);
   const [formEquipe, setFormEquipe] = useState({ nome: '', telefone: '', email: '' });
 
-  // Estado para Criar / Editar Serviço
   const [servicoEditandoId, setServicoEditandoId] = useState(null);
   const [formServico, setFormServico] = useState({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
   const [temposPorProfissional, setTemposPorProfissional] = useState({});
@@ -144,7 +142,7 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
-  // Funções de Equipe (Criar e Editar)
+  // --- FUNÇÕES DE EQUIPE ---
   function abrirModalCriarEquipe() {
     setMembroEditandoId(null);
     setFormEquipe({ nome: '', telefone: '', email: '' });
@@ -183,7 +181,22 @@ export default function AdminDashboard() {
     carregarEquipe();
   }
 
-  // Funções de Serviços
+  // NOVA FUNÇÃO: Excluir Profissional da Equipe
+  async function excluirProfissional(id, nome) {
+    const confirmar = window.confirm(`ATENÇÃO: Tem certeza que deseja remover o profissional "${nome}" da sua equipe?`);
+    if (!confirmar) return;
+
+    const { error } = await supabase.from('barbeiros').delete().eq('id', id);
+    
+    if (error) {
+      alert("Erro ao excluir: " + error.message + " (Dica: Se ele tiver agendamentos no histórico, o sistema bloqueia para não perder suas finanças.)");
+    } else {
+      alert("Profissional removido com sucesso!");
+      carregarEquipe();
+    }
+  }
+
+  // --- FUNÇÕES DE SERVIÇOS ---
   function abrirModalCriarServico() {
     setServicoEditandoId(null);
     setFormServico({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
@@ -583,7 +596,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* ABA: EQUIPE (Agora com Edição e E-mail) */}
+              {/* ABA: EQUIPE */}
               {abaAtiva === 'equipe' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
@@ -603,11 +616,21 @@ export default function AdminDashboard() {
                               {membro.telefone || 'Sem telefone'} · <span className="text-[var(--brass-bright)]">{membro.email || 'Sem e-mail cadastrado'}</span>
                             </div>
                           </div>
-                          <div>
+                          
+                          {/* BOTÕES DA EQUIPE: Editar e Excluir */}
+                          <div className="flex gap-2">
                             <button onClick={() => abrirModalEditarEquipe(membro)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">
                               Editar
                             </button>
+                            
+                            {/* O dono NÃO PODE excluir a própria conta para não se trancar fora do sistema */}
+                            {membro.id !== perfilUsuario.id && (
+                              <button onClick={() => excluirProfissional(membro.id, membro.nome)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-red-900/20 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white transition-colors">
+                                Excluir
+                              </button>
+                            )}
                           </div>
+
                         </div>
                       ))}
                     </div>
