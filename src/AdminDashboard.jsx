@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from './supabaseClient';
 import { useNavigate } from 'react-router-dom';
 
@@ -11,6 +11,7 @@ const PALETAS = {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const inputLogoRef = useRef(null);
   
   const [perfilUsuario, setPerfilUsuario] = useState(null);
   const [dadosEmpresa, setDadosEmpresa] = useState(null);
@@ -27,6 +28,7 @@ export default function AdminDashboard() {
   const [equipe, setEquipe] = useState([]);
   const [duracoesEquipe, setDuracoesEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
@@ -161,8 +163,33 @@ export default function AdminDashboard() {
       alert("Erro ao alterar tema: " + error.message);
     } else {
       setDadosEmpresa({ ...dadosEmpresa, tema: novoTema });
-      alert("Tema alterado com sucesso! Sua página já está atualizada.");
+      alert("Tema alterado com sucesso!");
     }
+  }
+
+  async function handleUploadLogo(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setUploadingLogo(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `logo_${perfilUsuario.empresa_id}_${Math.random()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file);
+
+    if (uploadError) {
+      alert('Erro ao enviar imagem: ' + uploadError.message);
+      setUploadingLogo(false);
+      return;
+    }
+
+    const { data: publicData } = supabase.storage.from('logos').getPublicUrl(fileName);
+    
+    await supabase.from('empresas').update({ logo_url: publicData.publicUrl }).eq('id', perfilUsuario.empresa_id);
+    setDadosEmpresa({ ...dadosEmpresa, logo_url: publicData.publicUrl });
+    
+    setUploadingLogo(false);
+    alert('Logo atualizada com sucesso!');
   }
 
   function abrirModalCriarEquipe() {
@@ -311,7 +338,6 @@ export default function AdminDashboard() {
   else if (modalDetalhes === 'SAIDAS') { detalhesAtuais = todasSaidas; tituloDetalhes = 'Detalhamento de Saídas'; }
   else if (modalDetalhes === 'GERAL') { detalhesAtuais = todasMovimentacoes; tituloDetalhes = 'Extrato Geral'; }
 
-  // --- LEITURA DO TEMA DINÂMICO ---
   const temaAtivo = PALETAS[dadosEmpresa?.tema || 'dourado'];
 
   const brandStyles = `
@@ -332,29 +358,26 @@ export default function AdminDashboard() {
     .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
   `;
 
-  // TELA DE BLOQUEIO (PAYWALL)
   if (contaBloqueada) {
     return (
-      <>
+      <div className="brand-theme min-h-screen flex items-center justify-center p-4">
         <style>{brandStyles}</style>
-        <div className="brand-theme min-h-screen flex items-center justify-center p-4">
-          <div className="bg-[var(--leather-2)] border border-[var(--brass)] p-8 rounded-xl max-w-md w-full text-center shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[var(--brass)] to-[var(--brass-bright)]"></div>
-            <h2 className="font-fraunces font-bold text-[24px] text-[var(--paper)] mb-2 mt-4">Seu período de teste acabou!</h2>
-            <p className="text-[var(--paper-dim)] text-sm mb-8">
-              Esperamos que tenha gostado da magia na gestão da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
-            </p>
-            <div className="flex flex-col gap-3">
-              <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:opacity-90 transition-opacity">
-                Assinar Maggia
-              </a>
-              <button onClick={handleSair} className="text-[11px] font-mono text-[var(--paper-dim)] hover:text-white uppercase tracking-widest mt-2">
-                Sair da Conta
-              </button>
-            </div>
+        <div className="bg-[var(--leather-2)] border border-[var(--brass)] p-8 rounded-xl max-w-md w-full text-center shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[var(--brass)] to-[var(--brass-bright)]"></div>
+          <h2 className="font-fraunces font-bold text-[24px] text-[var(--paper)] mb-2 mt-4">Seu período de teste acabou!</h2>
+          <p className="text-[var(--paper-dim)] text-sm mb-8">
+            Esperamos que tenha gostado da magia na gestão da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
+          </p>
+          <div className="flex flex-col gap-3">
+            <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:opacity-90">
+              Assinar Maggia
+            </a>
+            <button onClick={handleSair} className="text-[11px] font-mono text-[var(--paper-dim)] hover:text-white uppercase tracking-widest mt-2">
+              Sair da Conta
+            </button>
           </div>
         </div>
-      </>
+      </div>
     );
   }
 
@@ -366,39 +389,33 @@ export default function AdminDashboard() {
         {/* SIDEBAR */}
         <div className="w-full md:w-[220px] shrink-0 bg-[var(--leather-2)] border-b md:border-b-0 md:border-r border-[var(--line)] p-4 md:p-5 flex flex-row md:flex-col justify-between md:justify-start items-center md:items-stretch z-10 sticky top-0 md:h-screen">
           <div className="flex items-center gap-3 md:mb-8">
-            <img src="/logomaggia.JPG" alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded border-[1.5px] border-[var(--brass)] object-cover shadow-lg" />
+            <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded border-[1.5px] border-[var(--brass)] object-cover shadow-lg bg-white" />
             <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight text-white uppercase">{dadosEmpresa?.nome || 'Maggia'}</div>
           </div>
           
           <div className="hidden md:block font-mono text-[10px] tracking-[.1em] uppercase text-[var(--paper-dim)] my-4 px-3">Operação</div>
           <div className="flex flex-row md:flex-col gap-2 overflow-x-auto hide-scroll">
             <button onClick={() => setAbaAtiva('agenda')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'agenda' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Agenda</button>
-            
             {perfilUsuario?.cargo === 'dono' && (
               <>
                 <button onClick={() => setAbaAtiva('servicos')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'servicos' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Serviços</button>
                 <button onClick={() => setAbaAtiva('equipe')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'equipe' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Equipe</button>
                 <button onClick={() => setAbaAtiva('financeiro')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'financeiro' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Financeiro</button>
-                
-                {/* O BOTÃO DE APARÊNCIA ESTÁ AQUI */}
                 <button onClick={() => setAbaAtiva('aparencia')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'aparencia' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>🎨 Aparência</button>
               </>
             )}
           </div>
           
           <div className="hidden md:block mt-auto pt-4 border-t border-[var(--line)] text-xs text-[var(--paper-dim)]">
-            <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">
-              {perfilUsuario?.nome}
-            </div>
-            <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link de Agendamento copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
-            <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20ativar%20minha%20assinatura%20da%20Maggia!" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4 flex items-center gap-1">🚀 Assinar Sistema</a>
+            <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">{perfilUsuario?.nome}</div>
+            <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
+            <a href="https://wa.me/5513974211857?text=Ol%C3%A1" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4 flex items-center gap-1">🚀 Assinar Sistema</a>
             <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair da Conta</button>
           </div>
         </div>
 
         {/* MAIN CONTENT */}
         <div className="flex-1 p-5 md:p-9 pb-24 overflow-y-auto">
-          
           <div className="flex flex-col sm:flex-row justify-between items-start mb-8 gap-4">
             <div>
               <div className="font-mono text-[11px] tracking-[.14em] uppercase text-[var(--brass)] mb-2">Painel de Gestão</div>
@@ -408,17 +425,10 @@ export default function AdminDashboard() {
             </div>
             
             <div className="w-full sm:w-auto text-right flex gap-2">
-              {abaAtiva === 'servicos' ? (
-                <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:opacity-90 transition-opacity shadow-lg">+ Novo Serviço</button>
-              ) : abaAtiva === 'equipe' ? (
-                <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:opacity-90 transition-opacity shadow-lg">+ Novo Profissional</button>
-              ) : abaAtiva === 'agenda' ? (
-                <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border-none bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:opacity-90 transition-opacity shadow-lg">+ Novo agendamento</button>
-              ) : null}
-              
-              {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && (
-                <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[var(--brass)]/10 transition-colors shadow-lg">+ Lançar Transação</button>
-              )}
+              {abaAtiva === 'servicos' ? <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo Serviço</button> : null}
+              {abaAtiva === 'equipe' ? <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo Profissional</button> : null}
+              {abaAtiva === 'agenda' ? <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo agendamento</button> : null}
+              {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] text-[var(--brass)] hover:bg-[var(--brass)]/10 shadow-lg">+ Lançar Transação</button>}
             </div>
           </div>
 
@@ -426,43 +436,33 @@ export default function AdminDashboard() {
             <>
               {/* ABA: APARÊNCIA */}
               {abaAtiva === 'aparencia' && perfilUsuario?.cargo === 'dono' && (
-                <div className="animate-fade-in max-w-4xl">
+                <div className="animate-fade-in max-w-4xl space-y-6">
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6 flex flex-col sm:flex-row items-center gap-6">
+                    <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Sua Logo" className="w-24 h-24 rounded-full border-2 border-[var(--brass)] object-cover bg-white" />
+                    <div>
+                      <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Logo da Barbearia</h2>
+                      <p className="text-[12px] text-[var(--paper-dim)] mb-4">Recomendamos imagens quadradas (PNG ou JPG).</p>
+                      
+                      <input type="file" accept="image/*" ref={inputLogoRef} onChange={handleUploadLogo} className="hidden" />
+                      <button onClick={() => inputLogoRef.current.click()} disabled={uploadingLogo} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[var(--brass)]/10 transition-colors">
+                        {uploadingLogo ? 'Enviando...' : 'Trocar Imagem'}
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6">
-                    <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Tema da sua Página</h2>
-                    <p className="text-[12px] text-[var(--paper-dim)] mb-6">Escolha a paleta de cores para personalizar a experiência dos seus clientes. (Ao clicar, a cor de todo o sistema muda na hora)</p>
+                    <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Cores da sua Página</h2>
+                    <p className="text-[12px] text-[var(--paper-dim)] mb-6">Escolha a paleta de cores para personalizar a experiência dos clientes.</p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div onClick={() => salvarTema('dourado')} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === 'dourado' || !dadosEmpresa?.tema ? 'border-[#C9A24B] bg-[#C9A24B]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[#C9A24B]/50'}`}>
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-5 h-5 rounded-full bg-[#C9A24B]"></div>
-                          <span className="font-bold text-white text-sm">Dourado Maggia</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--paper-dim)]">Visual clássico e luxuoso, com destaque em ouro.</p>
-                      </div>
-
-                      <div onClick={() => salvarTema('esmeralda')} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === 'esmeralda' ? 'border-[#10B981] bg-[#10B981]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[#10B981]/50'}`}>
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-5 h-5 rounded-full bg-[#10B981]"></div>
-                          <span className="font-bold text-white text-sm">Esmeralda Premium</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--paper-dim)]">Moderno e elegante, focado em tons verdes nobres.</p>
-                      </div>
-
-                      <div onClick={() => salvarTema('rubi')} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === 'rubi' ? 'border-[#EF4444] bg-[#EF4444]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[#EF4444]/50'}`}>
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-5 h-5 rounded-full bg-[#EF4444]"></div>
-                          <span className="font-bold text-white text-sm">Rubi Imperial</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--paper-dim)]">Esportivo e marcante, com detalhes em vermelho vivo.</p>
-                      </div>
-
-                      <div onClick={() => salvarTema('safira')} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === 'safira' ? 'border-[#3B82F6] bg-[#3B82F6]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[#3B82F6]/50'}`}>
-                        <div className="flex items-center gap-3 mb-2">
-                          <div className="w-5 h-5 rounded-full bg-[#3B82F6]"></div>
-                          <span className="font-bold text-white text-sm">Safira Dark</span>
-                        </div>
-                        <p className="text-[11px] text-[var(--paper-dim)]">Executivo e moderno, com detalhes em azul escuro.</p>
-                      </div>
+                      {Object.keys(PALETAS).map(chave => (
+                         <div key={chave} onClick={() => salvarTema(chave)} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === chave || (!dadosEmpresa?.tema && chave === 'dourado') ? 'border-[var(--brass)] bg-[var(--brass)]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[var(--brass)]/50'}`}>
+                           <div className="flex items-center gap-3 mb-2">
+                             <div className="w-5 h-5 rounded-full" style={{backgroundColor: PALETAS[chave].primary}}></div>
+                             <span className="font-bold text-white text-sm capitalize">{chave}</span>
+                           </div>
+                         </div>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -681,7 +681,7 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAIS: Equipe, Servico, Detalhes Financeiro, Agendamento Manual, Transacao Manual */}
+        {/* MODAIS */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">

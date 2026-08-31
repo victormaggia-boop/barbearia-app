@@ -182,6 +182,7 @@ export default function Booking() {
       <div className="min-h-screen flex items-center justify-center p-4 bg-cover bg-center bg-blend-overlay bg-black/90" style={{ backgroundImage: `url('${temaAtivo.bgImg}')` }}>
         <style>{brandStyles}</style>
         <div className="bg-glass border border-primary/30 p-10 rounded-xl text-center max-w-md w-full shadow-2xl">
+          <img src={empresa.logo_url || "/logomaggia.JPG"} alt="Logo" className="w-16 h-16 mx-auto rounded-full border-2 border-primary object-cover shadow-lg mb-4 bg-white" />
           <h2 className="text-2xl font-serif text-white mb-2">Fechado, chefe!</h2>
           <p className="text-gray-400 mb-6 text-sm">Seu horário foi reservado com sucesso.</p>
           <div className="font-mono text-primary mb-6 border border-primary/30 p-4 rounded bg-black/40 text-sm">
@@ -198,7 +199,13 @@ export default function Booking() {
     <div className="min-h-screen flex flex-col items-center py-10 px-4 bg-cover bg-center bg-blend-overlay" style={{ backgroundImage: `url('${temaAtivo.bgImg}')`, backgroundColor: 'rgba(0,0,0,0.85)' }}>
       <style>{brandStyles}</style>
       
-      <div className="text-center mb-10 mt-4">
+      {/* CABEÇALHO COM LOGO DINÂMICA */}
+      <div className="text-center mb-10 mt-2">
+        <img 
+          src={empresa.logo_url || "/logomaggia.JPG"} 
+          alt="Logo da Barbearia" 
+          className="w-20 h-20 mx-auto rounded-full border-2 border-primary object-cover shadow-[0_0_20px_rgba(255,255,255,0.15)] mb-4 bg-white" 
+        />
         <h1 className="text-4xl font-serif text-white font-bold mb-2 tracking-wide drop-shadow-md">{empresa.nome || 'Barbearia'}</h1>
         <p className="font-mono text-primary text-xs tracking-[0.2em] uppercase drop-shadow">Reserve seu horário, chefe</p>
       </div>
