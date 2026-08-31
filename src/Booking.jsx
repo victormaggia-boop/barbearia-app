@@ -3,10 +3,10 @@ import { supabase } from './supabaseClient';
 import { useParams } from 'react-router-dom'; // Puxa o nome do link
 
 const PALETAS = {
-  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E' },
-  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669' },
-  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C' },
-  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8' }
+  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bgImg: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2074&auto=format&fit=crop" },
+  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bgImg: "https://images.unsplash.com/photo-1599351431202-1e0f0137899a?q=80&w=2070&auto=format&fit=crop" },
+  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bgImg: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=2070&auto=format&fit=crop" },
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bgImg: "https://images.unsplash.com/photo-1621605815971-c0fc19d45a90?q=80&w=2070&auto=format&fit=crop" }
 };
 
 export default function Booking() {
@@ -171,8 +171,7 @@ export default function Booking() {
   }
 
   return (
-    <div className="bg-barber min-h-screen flex flex-col items-center py-10 px-4 bg-[url('https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2074&auto=format&fit=crop')] bg-cover bg-center bg-blend-overlay bg-black/90">
-      <style>{brandStyles}</style>
+    <div className="bg-barber min-h-screen flex flex-col items-center py-10 px-4 bg-cover bg-center bg-blend-overlay bg-black/90" style={{ backgroundImage: `url('${temaAtivo.bgImg}')` }}>
       
       <div className="text-center mb-10">
         <h1 className="text-4xl font-serif text-white font-bold mb-2">{empresa.nome || 'Barbearia'}</h1>

@@ -3,10 +3,10 @@ import { supabase } from './supabaseClient';
 import { useNavigate } from 'react-router-dom';
 
 const PALETAS = {
-  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E' },
-  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669' },
-  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C' },
-  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8' }
+  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17' },
+  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234' },
+  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E' },
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759' }
 };
 
 export default function AdminDashboard() {
@@ -317,7 +317,9 @@ export default function AdminDashboard() {
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Work+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
     .brand-theme { 
-      --leather: #16130F; --leather-2: #1D1912; --leather-3: #241F17; 
+      --leather: ${temaAtivo.bg1}; 
+      --leather-2: ${temaAtivo.bg2}; 
+      --leather-3: ${temaAtivo.bg3}; 
       --brass: ${temaAtivo.primary}; 
       --brass-bright: ${temaAtivo.bright}; 
       --copper: ${temaAtivo.accent}; 
