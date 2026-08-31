@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useParams } from 'react-router-dom'; // Puxa o nome do link
 
+const PALETAS = {
+  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E' },
+  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669' },
+  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C' },
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8' }
+};
+
 export default function Booking() {
   const { slug } = useParams(); // Pega o "barber-halley" da URL
   const [empresa, setEmpresa] = useState(null);
@@ -23,7 +30,7 @@ export default function Booking() {
   // 1. PRIMEIRO PASSO: Descobrir qual é a empresa baseada no link
   useEffect(() => {
     async function carregarEmpresa() {
-      const { data, error } = await supabase.from('empresas').select('*').eq('slug', slug).maybeSingle();
+      const { data } = await supabase.from('empresas').select('*').eq('slug', slug).maybeSingle();
       if (data) {
         setEmpresa(data);
         carregarDados(data.id);
@@ -85,7 +92,7 @@ export default function Booking() {
       cliente = novo;
     }
 
-    const duracao = servicoSelecionado.duracao_minutos || 30; // Pode ser aprimorado para ler a duração customizada do barbeiro depois
+    const duracao = servicoSelecionado.duracao_minutos || 30;
     const inicioIso = new Date(`${dataSelecionada}T${horaSelecionada}:00-03:00`);
     const fimIso = new Date(inicioIso.getTime() + (duracao * 60000));
 
@@ -111,11 +118,20 @@ export default function Booking() {
     return horas;
   };
 
+  // --- LEITURA DO TEMA DINÂMICO ---
+  const temaAtivo = PALETAS[empresa?.tema || 'dourado'];
+
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Work+Sans:wght@400;600&display=swap');
+    :root {
+      --brass: ${temaAtivo.primary};
+      --brass-bright: ${temaAtivo.bright};
+    }
     .bg-barber { background-color: #16130F; color: #EFE6D8; font-family: 'Work Sans', sans-serif; }
-    .text-gold { color: #C9A24B; }
-    .border-gold { border-color: #C9A24B; }
+    .text-gold { color: var(--brass); }
+    .bg-gold { background-color: var(--brass); }
+    .hover-bg-gold-bright:hover { background-color: var(--brass-bright); }
+    .border-gold { border-color: var(--brass); }
     .bg-panel { background-color: #241F17; }
     .font-mono { font-family: 'Space Mono', monospace; }
   `;
@@ -134,7 +150,7 @@ export default function Booking() {
 
   // Tela de Loading enquanto busca os dados
   if (!empresa) {
-    return <div className="bg-[#16130F] min-h-screen flex items-center justify-center p-4 text-[#C9A24B] font-mono text-xs uppercase tracking-widest">Carregando Agenda...</div>;
+    return <div className="bg-[#16130F] min-h-screen flex items-center justify-center p-4 text-gold font-mono text-xs uppercase tracking-widest">Carregando Agenda...</div>;
   }
 
   if (sucesso) {
@@ -148,7 +164,7 @@ export default function Booking() {
             {dataSelecionada.split('-').reverse().join('/')} às {horaSelecionada}<br/>
             Com {profissionalSelecionado.nome}
           </div>
-          <button onClick={() => window.location.reload()} className="w-full bg-gold text-black font-bold py-3 rounded uppercase tracking-widest bg-[#C9A24B] hover:bg-[#E4C066] transition-colors">Novo agendamento</button>
+          <button onClick={() => window.location.reload()} className="w-full bg-gold hover-bg-gold-bright text-black font-bold py-3 rounded uppercase tracking-widest transition-colors">Novo agendamento</button>
         </div>
       </div>
     );
@@ -163,7 +179,7 @@ export default function Booking() {
         <p className="font-mono text-gold text-xs tracking-[0.2em] uppercase">Reserve seu horário, chefe</p>
       </div>
 
-      <div className="w-full max-w-md border border-[#C9A24B]/30 rounded-xl bg-[#16130F]/90 backdrop-blur-xl p-6 shadow-2xl">
+      <div className="w-full max-w-md border border-gold/30 rounded-xl bg-[#16130F]/90 backdrop-blur-xl p-6 shadow-2xl">
         
         {/* PASSO 1: SERVIÇO */}
         {step === 1 && (
@@ -175,7 +191,7 @@ export default function Booking() {
                 const temPromo = s.preco_promocional && Number(s.preco_promocional) > 0;
                 
                 return (
-                  <div key={s.id} onClick={() => setServicoSelecionado(s)} className={`p-4 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${servicoSelecionado?.id === s.id ? 'border-gold bg-[#C9A24B]/10 shadow-[0_0_15px_rgba(201,162,75,0.15)]' : 'border-[#C9A24B]/20 bg-panel hover:border-gold/50'}`}>
+                  <div key={s.id} onClick={() => setServicoSelecionado(s)} className={`p-4 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${servicoSelecionado?.id === s.id ? 'border-gold bg-gold/10 shadow-lg' : 'border-gold/20 bg-panel hover:border-gold/50'}`}>
                     <div>
                       <div className="font-semibold text-sm text-white flex items-center gap-2">
                         {s.nome}
@@ -185,14 +201,14 @@ export default function Booking() {
                     </div>
                     <div className="font-mono text-gold text-sm flex items-center gap-3">
                       R$ {Number(precoEfetivo).toFixed(2)}
-                      <div className={`w-4 h-4 rounded-full border border-gold flex items-center justify-center transition-all ${servicoSelecionado?.id === s.id ? 'bg-gold shadow-[0_0_10px_rgba(201,162,75,0.8)]' : ''}`}></div>
+                      <div className={`w-4 h-4 rounded-full border border-gold flex items-center justify-center transition-all ${servicoSelecionado?.id === s.id ? 'bg-gold shadow-md' : ''}`}></div>
                     </div>
                   </div>
                 )
               })}
               {servicos.length === 0 && <div className="text-center text-xs text-gray-500 font-mono py-4">Nenhum serviço disponível.</div>}
             </div>
-            <button disabled={!servicoSelecionado} onClick={() => setStep(2)} className="w-full mt-6 bg-[#C9A24B] text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 hover:bg-[#E4C066] transition-all">Próximo Passo</button>
+            <button disabled={!servicoSelecionado} onClick={() => setStep(2)} className="w-full mt-6 bg-gold hover-bg-gold-bright text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 transition-all">Próximo Passo</button>
           </div>
         )}
 
@@ -207,13 +223,13 @@ export default function Booking() {
             
             <div className="space-y-3">
               {profissionais.map(p => (
-                <div key={p.id} onClick={() => setProfissionalSelecionado(p)} className={`p-4 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${profissionalSelecionado?.id === p.id ? 'border-gold bg-[#C9A24B]/10 shadow-[0_0_15px_rgba(201,162,75,0.15)]' : 'border-[#C9A24B]/20 bg-panel hover:border-gold/50'}`}>
+                <div key={p.id} onClick={() => setProfissionalSelecionado(p)} className={`p-4 rounded-lg border cursor-pointer transition-all flex justify-between items-center ${profissionalSelecionado?.id === p.id ? 'border-gold bg-gold/10 shadow-lg' : 'border-gold/20 bg-panel hover:border-gold/50'}`}>
                   <div className="font-semibold text-sm text-white">{p.nome}</div>
-                  <div className={`w-4 h-4 rounded-full border border-gold flex items-center justify-center transition-all ${profissionalSelecionado?.id === p.id ? 'bg-gold shadow-[0_0_10px_rgba(201,162,75,0.8)]' : ''}`}></div>
+                  <div className={`w-4 h-4 rounded-full border border-gold flex items-center justify-center transition-all ${profissionalSelecionado?.id === p.id ? 'bg-gold shadow-md' : ''}`}></div>
                 </div>
               ))}
             </div>
-            <button disabled={!profissionalSelecionado} onClick={() => setStep(3)} className="w-full mt-6 bg-[#C9A24B] text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 hover:bg-[#E4C066] transition-all">Próximo Passo</button>
+            <button disabled={!profissionalSelecionado} onClick={() => setStep(3)} className="w-full mt-6 bg-gold hover-bg-gold-bright text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 transition-all">Próximo Passo</button>
           </div>
         )}
 
@@ -232,14 +248,14 @@ export default function Booking() {
               {gerarHorarios().map(hora => {
                 const ocupado = horariosOcupados.includes(hora);
                 return (
-                  <button key={hora} disabled={ocupado} onClick={() => setHoraSelecionada(hora)} className={`py-3 rounded text-sm font-mono transition-all border ${ocupado ? 'border-gray-800 text-gray-700 bg-black/50 line-through cursor-not-allowed' : horaSelecionada === hora ? 'bg-gold text-black border-gold font-bold shadow-[0_0_10px_rgba(201,162,75,0.4)]' : 'border-gold/20 text-gray-300 hover:border-gold/60 bg-panel'}`}>
+                  <button key={hora} disabled={ocupado} onClick={() => setHoraSelecionada(hora)} className={`py-3 rounded text-sm font-mono transition-all border ${ocupado ? 'border-gray-800 text-gray-700 bg-black/50 line-through cursor-not-allowed' : horaSelecionada === hora ? 'bg-gold text-black border-gold font-bold shadow-md' : 'border-gold/20 text-gray-300 hover:border-gold/60 bg-panel'}`}>
                     {hora}
                   </button>
                 )
               })}
             </div>
 
-            <button disabled={!horaSelecionada} onClick={() => setStep(4)} className="w-full bg-[#C9A24B] text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 hover:bg-[#E4C066] transition-all">Próximo Passo</button>
+            <button disabled={!horaSelecionada} onClick={() => setStep(4)} className="w-full bg-gold hover-bg-gold-bright text-black font-bold py-3.5 rounded uppercase tracking-widest disabled:opacity-50 transition-all">Próximo Passo</button>
           </div>
         )}
 
@@ -262,7 +278,7 @@ export default function Booking() {
               <input type="text" required placeholder="Seu Nome Completo" value={formCliente.nome} onChange={e => setFormCliente({...formCliente, nome: e.target.value})} className="w-full p-4 bg-panel border border-gold/30 rounded text-white text-sm focus:outline-none focus:border-gold" />
               <input type="tel" required placeholder="Seu WhatsApp (DDD + Número)" value={formCliente.telefone} onChange={e => setFormCliente({...formCliente, telefone: e.target.value})} className="w-full p-4 bg-panel border border-gold/30 rounded text-white text-sm focus:outline-none focus:border-gold" />
               
-              <button type="submit" className="w-full mt-2 bg-[#C9A24B] text-black font-bold py-4 rounded uppercase tracking-widest hover:bg-[#E4C066] transition-colors shadow-[0_0_15px_rgba(201,162,75,0.4)]">Confirmar Horário</button>
+              <button type="submit" className="w-full mt-2 bg-gold hover-bg-gold-bright text-black font-bold py-4 rounded uppercase tracking-widest transition-colors shadow-lg">Confirmar Horário</button>
             </form>
           </div>
         )}
