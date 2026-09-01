@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
     "dotenv": "^17.4.2",
+    "framer-motion": "^13.1.1",
     "lucide-react": "^1.33.0",
     "openai": "^6.49.0",
     "qrcode-terminal": "^0.12.0",

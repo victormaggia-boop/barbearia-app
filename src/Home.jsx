@@ -137,7 +137,7 @@ export default function Home() {
         <div className="flex-1 max-w-2xl text-center lg:text-left">
           <div className="font-mono text-gold tracking-[0.2em] uppercase text-[11px] mb-4">Plataforma de Gestão Completa</div>
           <h1 className="font-fraunces font-black text-4xl lg:text-6xl mb-6 leading-tight">
-            A magia por trás de <br/>uma barbearia de <span className="text-transparent bg-clip-text bg-gradient-to-r from-gold to-yellow-200">sucesso.</span>
+            A magia por trás de <br/>uma barbearia <span className="text-transparent bg-clip-text bg-gradient-to-r from-gold to-yellow-200">sucesso.</span>
           </h1>
           <p className="text-gray-400 text-lg mb-8 max-w-xl mx-auto lg:mx-0">
             Abandone o papel e caneta. Tenha agendamento online inteligente, controle financeiro automático e gestão de equipe em uma única plataforma premium.
