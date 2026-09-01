@@ -11,7 +11,6 @@ const MatrixBackground = () => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
-    // Ajusta o tamanho do canvas para a tela
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -19,18 +18,15 @@ const MatrixBackground = () => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Caracteres binários para um visual tech limpo
     const chars = '01'; 
     const fontSize = 14;
     const columns = canvas.width / fontSize;
     const drops = Array(Math.floor(columns)).fill(1);
 
     const draw = () => {
-      // Fundo semi-transparente para criar o rastro (fading effect)
-      ctx.fillStyle = 'rgba(3, 7, 18, 0.1)'; // Mesma cor do bg-[#030712]
+      ctx.fillStyle = 'rgba(3, 7, 18, 0.1)'; 
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Cor do texto (Ciano suave com baixa opacidade)
       ctx.fillStyle = 'rgba(6, 182, 212, 0.25)';
       ctx.font = `${fontSize}px monospace`;
 
@@ -38,7 +34,6 @@ const MatrixBackground = () => {
         const text = chars[Math.floor(Math.random() * chars.length)];
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
 
-        // Reseta a gota de forma aleatória para não ficarem alinhadas
         if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
           drops[i] = 0;
         }
@@ -46,7 +41,7 @@ const MatrixBackground = () => {
       }
     };
 
-    const interval = setInterval(draw, 50); // Velocidade suave
+    const interval = setInterval(draw, 50);
 
     return () => {
       clearInterval(interval);
@@ -61,7 +56,6 @@ const MatrixBackground = () => {
     />
   );
 };
-
 
 export default function Landing() {
   const whatsappVendas = "5513974211857";
@@ -123,13 +117,16 @@ export default function Landing() {
           <span className="text-2xl font-black tracking-tighter text-white">MAGGIA</span>
         </motion.div>
         
-        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="flex gap-4">
-          <Link to="/login" className="hidden md:flex items-center px-5 py-2.5 text-sm font-semibold text-slate-300 hover:text-white transition-colors">
+        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5 }} className="flex gap-4 items-center">
+          <Link to="/admin" className="hidden md:flex items-center px-4 py-2 text-sm font-semibold text-slate-300 hover:text-white transition-colors">
             Acesso Restrito
           </Link>
-          <a href={linkZap} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-5 py-2.5 bg-[#030712]/50 hover:bg-white/10 border border-white/10 rounded-full text-sm font-semibold text-white transition-all backdrop-blur-md hover:shadow-[0_0_20px_rgba(6,182,212,0.3)]">
+          <a href={linkZap} target="_blank" rel="noreferrer" className="hidden md:flex items-center gap-2 px-5 py-2.5 bg-[#030712]/50 hover:bg-white/10 border border-white/10 rounded-full text-sm font-semibold text-white transition-all backdrop-blur-md hover:shadow-[0_0_20px_rgba(6,182,212,0.3)]">
             Falar com Consultor
           </a>
+          <Link to="/cadastro" className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full text-sm font-bold text-white transition-all hover:scale-105 shadow-[0_0_15px_rgba(6,182,212,0.4)]">
+            Teste Grátis
+          </Link>
         </motion.div>
       </nav>
 
@@ -153,10 +150,13 @@ export default function Landing() {
             Um ecossistema <strong className="text-cyan-400 font-medium">white-label</strong> que atende clientes no WhatsApp, organiza horários e gerencia o caixa enquanto você foca em entregar o melhor serviço.
           </motion.p>
 
-          <motion.div variants={fadeUp} className="flex items-center gap-6">
-            <a href={linkZap} target="_blank" rel="noreferrer" className="group relative flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl transition-all hover:scale-105 shadow-[0_0_30px_rgba(6,182,212,0.3)]">
-              <span className="relative">Automatizar Meu Negócio</span>
+          <motion.div variants={fadeUp} className="flex flex-wrap items-center gap-4">
+            <Link to="/cadastro" className="group relative flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-2xl transition-all hover:scale-105 shadow-[0_0_30px_rgba(6,182,212,0.3)]">
+              <span className="relative">Começar Teste Grátis</span>
               <ArrowRight className="relative w-5 h-5 group-hover:translate-x-1 transition-transform" />
+            </Link>
+            <a href={linkZap} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold rounded-2xl transition-all backdrop-blur-md">
+              Falar com Consultor
             </a>
           </motion.div>
         </div>
@@ -254,9 +254,9 @@ export default function Landing() {
               <div className="text-5xl font-black text-white mb-6 flex justify-center items-end gap-1">
                 <span className="text-2xl text-cyan-500">R$</span>97<span className="text-lg text-slate-500 font-normal pb-1">/mês</span>
               </div>
-              <a href={linkZap} target="_blank" rel="noreferrer" className="block w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl transition-all hover:scale-105 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_40px_rgba(6,182,212,0.6)]">
-                Garantir Vaga
-              </a>
+              <Link to="/cadastro" className="block w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl transition-all hover:scale-105 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_40px_rgba(6,182,212,0.6)]">
+                Iniciar Teste Grátis
+              </Link>
             </div>
           </div>
         </motion.div>
