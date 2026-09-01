@@ -18,19 +18,46 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const EMPRESA_SLUG = 'barber-halley'; 
 const NUMERO_ADMIN = '5513974211857@c.us'; 
 
-// 2. INICIALIZAÇÃO DO WHATSAPP
+// 2. INICIALIZAÇÃO DO WHATSAPP (COM SESSÃO NOMEADA PARA A RAILWAY)
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({ clientId: EMPRESA_SLUG }),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--single-process', '--disable-gpu']
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage', 
+            '--disable-accelerated-2d-canvas', 
+            '--no-first-run', 
+            '--no-zygote', 
+            '--single-process', 
+            '--disable-gpu'
+        ]
     }
 });
 
 const historicoConversas = new Map();
 const cronometros = new Map();
 
-client.on('qr', (qr) => console.log('🔗 Link QR Code: https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr)));
-client.on('ready', () => console.log(`✅ Robô Maggia ATIVO para a barbearia [${EMPRESA_SLUG}]!`));
+client.on('qr', (qr) => {
+    console.log('\n==================================================');
+    console.log('🤖 NOVO QR CODE GERADO! LEIA O LINK ABAIXO:');
+    console.log('🔗 https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr));
+    console.log('==================================================\n');
+});
+
+client.on('ready', () => {
+    console.log('\n==================================================');
+    console.log(`✅ Robô Maggia ATIVO e CONECTADO para a barbearia [${EMPRESA_SLUG}]!`);
+    console.log('==================================================\n');
+});
+
+client.on('authenticated', () => {
+    console.log('🔒 Autenticação salva com sucesso no disco fixo!');
+});
+
+client.on('auth_failure', msg => {
+    console.error('❌ Falha na autenticação. A sessão pode ter sido desconectada do celular.', msg);
+});
 
 client.on('message', async (msg) => {
     if (msg.from.includes('@g.us') || msg.from === 'status@broadcast') return;
@@ -175,10 +202,7 @@ DIRETRIZES E REGRAS:
                 const args = JSON.parse(toolCall.function.arguments);
                 const telefoneCliente = numeroCliente.split('@')[0];
 
-                // Busca cliente vinculado à empresa
                 let cliente = (await supabase.from('clientes').select('*').eq('telefone', telefoneCliente).eq('empresa_id', empresa.id).maybeSingle()).data;
-
-                // Auxiliar para achar barbeiro pelo nome
                 let barbeiroAlvo = barbeiros.find(b => b.nome.toLowerCase().includes((args.nome_barbeiro || '').toLowerCase()));
                 if (!barbeiroAlvo && barbeiros.length === 1) barbeiroAlvo = barbeiros[0];
 
@@ -296,14 +320,12 @@ DIRETRIZES E REGRAS:
                         continue;
                     }
 
-                    // CALCULA DURAÇÃO PERSONALIZADA (Tabela barbeiro_servicos)
                     const duracCustom = (duracoesCustom || []).find(d => d.servico_id === servico.id && d.barbeiro_id === barbeiroAlvo.id);
                     const duracaoMinutos = duracCustom ? duracCustom.duracao_minutos : (servico.duracao_minutos || 30);
 
                     const dataHoraInicio = new Date(`${args.data}T${args.hora}:00-03:00`);
                     const dataHoraFim = new Date(dataHoraInicio.getTime() + duracaoMinutos * 60000);
 
-                    // VERIFICA SE O HORÁRIO ESTÁ OCUPADO
                     const { data: ocupado } = await supabase.from('agendamentos')
                         .select('id')
                         .eq('empresa_id', empresa.id)
@@ -318,7 +340,6 @@ DIRETRIZES E REGRAS:
                         continue;
                     }
                     
-                    // CADASTRA OU ATUALIZA CLIENTE VINCULADO À EMPRESA
                     if (!cliente) {
                         const { data: novoCliente } = await supabase.from('clientes')
                             .insert([{ nome: args.nome_cliente, telefone: telefoneCliente, empresa_id: empresa.id }])
@@ -326,7 +347,6 @@ DIRETRIZES E REGRAS:
                         cliente = novoCliente;
                     }
 
-                    // GRAVA O AGENDAMENTO NO BANCO
                     const { error: erroAgendamento } = await supabase.from('agendamentos').insert([{
                         empresa_id: empresa.id,
                         cliente_id: cliente.id,
