@@ -31,18 +31,23 @@ export default function AdminDashboard() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
-  const [modalBloqueio, setModalBloqueio] = useState(false); // NOVO ESTADO DO BLOQUEIO
+  const [modalBloqueio, setModalBloqueio] = useState(false);
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
   const [modalEquipe, setModalEquipe] = useState(false);
   const [modalServico, setModalServico] = useState(false);
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
-  const [formBloqueio, setFormBloqueio] = useState({ profissional_id: '', data: '', hora: '', duracao_minutos: '60' }); // NOVO FORM DE BLOQUEIO
+  const [formBloqueio, setFormBloqueio] = useState({ profissional_id: '', data: '', hora: '', duracao_minutos: '60' });
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   
   const [membroEditandoId, setMembroEditandoId] = useState(null);
-  const [formEquipe, setFormEquipe] = useState({ nome: '', telefone: '', email: '' });
+  // NOVO: Adicionado campos de expediente e almoço no formulário da equipe
+  const [formEquipe, setFormEquipe] = useState({ 
+    nome: '', telefone: '', email: '', 
+    expediente_inicio: '09:00', expediente_fim: '18:00', 
+    almoco_inicio: '12:00', almoco_fim: '13:00' 
+  });
 
   const [servicoEditandoId, setServicoEditandoId] = useState(null);
   const [formServico, setFormServico] = useState({ nome: '', preco: '', preco_promocional: '', duracao_minutos: '30' });
@@ -159,10 +164,8 @@ export default function AdminDashboard() {
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
 
-  // --- NOVA FUNÇÃO DE BLOQUEIO DE AGENDA ---
   async function salvarBloqueio(e) {
     e.preventDefault();
-    // 1. Usa um cliente oculto para registrar a indisponibilidade sem quebrar o banco
     let { data: cliente } = await supabase.from('clientes').select('id').eq('telefone', '00000000000').eq('empresa_id', perfilUsuario.empresa_id).maybeSingle();
     if (!cliente) {
       const { data: novo } = await supabase.from('clientes').insert([{ nome: '🔒 AGENDA BLOQUEADA', telefone: '00000000000', empresa_id: perfilUsuario.empresa_id }]).select().single();
@@ -190,12 +193,10 @@ export default function AdminDashboard() {
     carregarAgenda();
   }
 
-  // Desfazer o Bloqueio exclui permanentemente o registro para liberar o horário
   async function removerBloqueio(id) {
     await supabase.from('agendamentos').delete().eq('id', id);
     carregarAgenda();
   }
-  // ------------------------------------------
 
   async function salvarTema(novoTema) {
     const { error } = await supabase.from('empresas').update({ tema: novoTema }).eq('id', perfilUsuario.empresa_id);
@@ -234,19 +235,42 @@ export default function AdminDashboard() {
 
   function abrirModalCriarEquipe() {
     setMembroEditandoId(null);
-    setFormEquipe({ nome: '', telefone: '', email: '' });
+    setFormEquipe({ 
+      nome: '', telefone: '', email: '',
+      expediente_inicio: '09:00', expediente_fim: '18:00',
+      almoco_inicio: '12:00', almoco_fim: '13:00'
+    });
     setModalEquipe(true);
   }
 
   function abrirModalEditarEquipe(membro) {
     setMembroEditandoId(membro.id);
-    setFormEquipe({ nome: membro.nome || '', telefone: membro.telefone || '', email: membro.email || '' });
+    setFormEquipe({ 
+      nome: membro.nome || '', 
+      telefone: membro.telefone || '', 
+      email: membro.email || '',
+      expediente_inicio: membro.expediente_inicio || '09:00',
+      expediente_fim: membro.expediente_fim || '18:00',
+      almoco_inicio: membro.almoco_inicio || '12:00',
+      almoco_fim: membro.almoco_fim || '13:00'
+    });
     setModalEquipe(true);
   }
 
   async function salvarProfissional(e) {
     e.preventDefault();
-    const dados = { nome: formEquipe.nome, telefone: formEquipe.telefone, email: formEquipe.email ? formEquipe.email.trim().toLowerCase() : null, empresa_id: perfilUsuario.empresa_id, cargo: 'profissional' };
+    const dados = { 
+      nome: formEquipe.nome, 
+      telefone: formEquipe.telefone, 
+      email: formEquipe.email ? formEquipe.email.trim().toLowerCase() : null, 
+      empresa_id: perfilUsuario.empresa_id, 
+      cargo: 'profissional',
+      expediente_inicio: formEquipe.expediente_inicio,
+      expediente_fim: formEquipe.expediente_fim,
+      almoco_inicio: formEquipe.almoco_inicio,
+      almoco_fim: formEquipe.almoco_fim
+    };
+    
     if (membroEditandoId) {
       await supabase.from('barbeiros').update(dados).eq('id', membroEditandoId);
     } else {
@@ -350,7 +374,6 @@ export default function AdminDashboard() {
     window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
-  // Filtrar os bloqueios para não entrarem nos relatórios financeiros
   const listaEntradasCortes = financeiro
     .filter(ag => ag.clientes?.telefone !== '00000000000') 
     .map(ag => {
@@ -370,7 +393,7 @@ export default function AdminDashboard() {
 
   const dadosGrafico = {};
   financeiro.forEach(ag => {
-    if(ag.clientes?.telefone === '00000000000') return; // Ignora os bloqueios no gráfico
+    if(ag.clientes?.telefone === '00000000000') return;
     const dia = new Date(ag.data_hora_inicio).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0);
   });
@@ -564,7 +587,7 @@ export default function AdminDashboard() {
                                 
                                 const isCancelado = ag.status === 'cancelado';
                                 const isConcluido = ag.status === 'concluido';
-                                const isBloqueio = ag.clientes?.telefone === '00000000000'; // Identifica se é um bloqueio
+                                const isBloqueio = ag.clientes?.telefone === '00000000000';
                                 const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
 
                                 return (
@@ -745,7 +768,8 @@ export default function AdminDashboard() {
                               <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)]'}`}>{membro.cargo}</span>
                             </div>
                             <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">
-                              {membro.telefone || 'Sem telefone'} · <span className="text-[var(--brass-bright)]">{membro.email || 'Sem e-mail'}</span>
+                              Trabalha das <span className="text-[var(--brass-bright)]">{membro.expediente_inicio || '09:00'}</span> às <span className="text-[var(--brass-bright)]">{membro.expediente_fim || '18:00'}</span><br/>
+                              Pausa/Almoço: <span className="text-[var(--copper-bright)]">{membro.almoco_inicio || '12:00'} às {membro.almoco_fim || '13:00'}</span>
                             </div>
                           </div>
                           
@@ -875,15 +899,43 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* --- MODAL EDITAR / CRIAR EQUIPE COM ALMOÇO --- */}
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl flex flex-col max-h-[90vh]">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{membroEditandoId ? 'Editar Profissional' : 'Adicionar Profissional'}</h2>
-              <form onSubmit={salvarProfissional} className="space-y-3 mt-4">
+              <form onSubmit={salvarProfissional} className="space-y-3 mt-4 overflow-y-auto hide-scroll pr-1">
                 <input type="text" placeholder="Nome Completo" required value={formEquipe.nome} onChange={e => setFormEquipe({...formEquipe, nome: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <input type="tel" placeholder="Telefone / WhatsApp" value={formEquipe.telefone} onChange={e => setFormEquipe({...formEquipe, telefone: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <input type="email" placeholder="E-mail" required value={formEquipe.email} onChange={e => setFormEquipe({...formEquipe, email: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <div className="flex gap-3 mt-6">
+                
+                <div className="pt-3 border-t border-[var(--line)]">
+                  <label className="block text-[11px] font-mono text-[var(--brass-bright)] uppercase mb-3">Horário de Trabalho</label>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <span className="text-[10px] text-[var(--paper-dim)] uppercase tracking-wider mb-1 block">Entrada</span>
+                      <input type="time" required value={formEquipe.expediente_inicio} onChange={e => setFormEquipe({...formEquipe, expediente_inicio: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[var(--paper-dim)] uppercase tracking-wider mb-1 block">Saída</span>
+                      <input type="time" required value={formEquipe.expediente_fim} onChange={e => setFormEquipe({...formEquipe, expediente_fim: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
+                    </div>
+                  </div>
+                  
+                  <label className="block text-[11px] font-mono text-[var(--copper-bright)] uppercase mb-3 mt-4">Horário de Almoço / Pausa</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[10px] text-[var(--paper-dim)] uppercase tracking-wider mb-1 block">Início da Pausa</span>
+                      <input type="time" value={formEquipe.almoco_inicio} onChange={e => setFormEquipe({...formEquipe, almoco_inicio: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--copper)] outline-none" style={{colorScheme:'dark'}}/>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[var(--paper-dim)] uppercase tracking-wider mb-1 block">Fim da Pausa</span>
+                      <input type="time" value={formEquipe.almoco_fim} onChange={e => setFormEquipe({...formEquipe, almoco_fim: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--copper)] outline-none" style={{colorScheme:'dark'}}/>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6 pt-4">
                   <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
                   <button type="submit" className="flex-1 py-[14px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Salvar</button>
                 </div>
@@ -892,6 +944,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL SERVICO (Mantido) */}
         {modalServico && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -929,6 +982,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL DETALHES FINANCEIROS (Mantido) */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -964,6 +1018,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* MODAL TRANSACAO (Mantido) */}
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
