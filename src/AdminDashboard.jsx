@@ -31,12 +31,14 @@ export default function AdminDashboard() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
+  const [modalBloqueio, setModalBloqueio] = useState(false); // NOVO ESTADO DO BLOQUEIO
   const [modalTransacao, setModalTransacao] = useState(false);
   const [modalDetalhes, setModalDetalhes] = useState(null);
   const [modalEquipe, setModalEquipe] = useState(false);
   const [modalServico, setModalServico] = useState(false);
 
   const [formNovoAgendamento, setFormNovoAgendamento] = useState({ cliente: '', telefone: '', servico_id: '', profissional_id: '', data: '', hora: '' });
+  const [formBloqueio, setFormBloqueio] = useState({ profissional_id: '', data: '', hora: '', duracao_minutos: '60' }); // NOVO FORM DE BLOQUEIO
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   
   const [membroEditandoId, setMembroEditandoId] = useState(null);
@@ -140,7 +142,7 @@ export default function AdminDashboard() {
       fim = new Date(fim.getFullYear(), fim.getMonth(), 0, 23, 59, 59);
     }
 
-    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco, preco_promocional), clientes(nome)`)
+    const { data: cortes } = await supabase.from('agendamentos').select(`id, status, data_hora_inicio, servicos(nome, preco, preco_promocional), clientes(nome, telefone)`)
       .eq('empresa_id', perfilUsuario.empresa_id)
       .gte('data_hora_inicio', inicio.toISOString()).lte('data_hora_inicio', fim.toISOString())
       .in('status', ['confirmado', 'concluido']);
@@ -156,6 +158,44 @@ export default function AdminDashboard() {
     carregarAgenda();
     if (perfilUsuario.cargo === 'dono') carregarFinanceiro();
   }
+
+  // --- NOVA FUNÇÃO DE BLOQUEIO DE AGENDA ---
+  async function salvarBloqueio(e) {
+    e.preventDefault();
+    // 1. Usa um cliente oculto para registrar a indisponibilidade sem quebrar o banco
+    let { data: cliente } = await supabase.from('clientes').select('id').eq('telefone', '00000000000').eq('empresa_id', perfilUsuario.empresa_id).maybeSingle();
+    if (!cliente) {
+      const { data: novo } = await supabase.from('clientes').insert([{ nome: '🔒 AGENDA BLOQUEADA', telefone: '00000000000', empresa_id: perfilUsuario.empresa_id }]).select().single();
+      cliente = novo;
+    }
+    
+    const profId = formBloqueio.profissional_id || perfilUsuario.id;
+    const serv = servicos[0]; 
+    if (!serv) return alert("Você precisa ter pelo menos um serviço cadastrado para poder bloquear a agenda.");
+    
+    const inicioIso = new Date(`${formBloqueio.data}T${formBloqueio.hora}:00-03:00`);
+    const fimIso = new Date(inicioIso.getTime() + (Number(formBloqueio.duracao_minutos) * 60000));
+
+    await supabase.from('agendamentos').insert([{ 
+      cliente_id: cliente.id, 
+      barbeiro_id: profId, 
+      servico_id: serv.id, 
+      empresa_id: perfilUsuario.empresa_id, 
+      data_hora_inicio: inicioIso.toISOString(), 
+      data_hora_fim: fimIso.toISOString(), 
+      status: 'confirmado' 
+    }]);
+
+    setModalBloqueio(false);
+    carregarAgenda();
+  }
+
+  // Desfazer o Bloqueio exclui permanentemente o registro para liberar o horário
+  async function removerBloqueio(id) {
+    await supabase.from('agendamentos').delete().eq('id', id);
+    carregarAgenda();
+  }
+  // ------------------------------------------
 
   async function salvarTema(novoTema) {
     const { error } = await supabase.from('empresas').update({ tema: novoTema }).eq('id', perfilUsuario.empresa_id);
@@ -306,13 +346,16 @@ export default function AdminDashboard() {
     const hora = new Date(ag.data_hora_inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
     const nomeCliente = ag.clientes?.nome.split(' ')[0] || 'chefe';
     const barbeiroNome = ag.barbeiros?.nome.split(' ')[0] || 'nossa equipe';
-    const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário de ${ag.servicos?.nome} hoje às ${hora} com ${barbeiroNome}. Te aguardamos, chefe!`;
+    const mensagem = `Fala ${nomeCliente}, tudo bem? Passando pra lembrar do seu horário hoje às ${hora} com ${barbeiroNome}. Te aguardamos!`;
     window.open(`https://wa.me/${numeroFinal}?text=${encodeURIComponent(mensagem)}`, '_blank');
   }
 
-  const listaEntradasCortes = financeiro.map(ag => {
-    return { id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço', subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0), tipo: 'ENTRADA', tag: 'Serviço' };
-  });
+  // Filtrar os bloqueios para não entrarem nos relatórios financeiros
+  const listaEntradasCortes = financeiro
+    .filter(ag => ag.clientes?.telefone !== '00000000000') 
+    .map(ag => {
+      return { id: ag.id, data: ag.data_hora_inicio, titulo: ag.servicos?.nome || 'Serviço', subtitulo: ag.clientes?.nome || 'Cliente', valor: Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0), tipo: 'ENTRADA', tag: 'Serviço' };
+    });
 
   const listaEntradasExtras = transacoes.filter(t => t.tipo === 'ENTRADA').map(t => ({ id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Entrada Extra', valor: Number(t.valor), tipo: 'ENTRADA', tag: 'Extra' }));
   const listaSaidas = transacoes.filter(t => t.tipo === 'SAIDA').map(t => ({ id: t.id, data: t.data_hora, titulo: t.descricao, subtitulo: 'Despesa / Pagamento', valor: Number(t.valor), tipo: 'SAIDA', tag: 'Saída' }));
@@ -327,6 +370,7 @@ export default function AdminDashboard() {
 
   const dadosGrafico = {};
   financeiro.forEach(ag => {
+    if(ag.clientes?.telefone === '00000000000') return; // Ignora os bloqueios no gráfico
     const dia = new Date(ag.data_hora_inicio).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     dadosGrafico[dia] = (dadosGrafico[dia] || 0) + Number(ag.servicos?.preco_promocional || ag.servicos?.preco || 0);
   });
@@ -360,13 +404,13 @@ export default function AdminDashboard() {
 
   if (contaBloqueada) {
     return (
-      <div className="brand-theme min-h-screen flex items-center justify-center p-4">
+      <div className="brand-theme h-[100dvh] overflow-hidden flex items-center justify-center p-4">
         <style>{brandStyles}</style>
         <div className="bg-[var(--leather-2)] border border-[var(--brass)] p-8 rounded-xl max-w-md w-full text-center shadow-[0_0_50px_rgba(0,0,0,0.3)] relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[var(--brass)] to-[var(--brass-bright)]"></div>
           <h2 className="font-fraunces font-bold text-[24px] text-[var(--paper)] mb-2 mt-4">Seu período de teste acabou!</h2>
           <p className="text-[var(--paper-dim)] text-sm mb-8">
-            Esperamos que tenha gostado da magia na gestão da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
+            Esperamos que tenha gostado da gestão inteligente da <strong>{dadosEmpresa?.nome}</strong>. Assine a plataforma para reativar seu painel e agenda online.
           </p>
           <div className="flex flex-col gap-3">
             <a href="https://wa.me/5513974211857?text=Ol%C3%A1%2C%20quero%20assinar%20a%20Maggia!" target="_blank" rel="noreferrer" className="w-full bg-[var(--brass)] text-[var(--leather)] font-bold py-3.5 rounded uppercase tracking-widest hover:opacity-90">
@@ -384,17 +428,23 @@ export default function AdminDashboard() {
   return (
     <>
       <style>{brandStyles}</style>
-      <div className="brand-theme min-h-screen flex flex-col md:flex-row antialiased text-[14px]">
+      <div className="brand-theme h-[100dvh] flex flex-col md:flex-row antialiased text-[14px] overflow-hidden">
         
         {/* SIDEBAR */}
-        <div className="w-full md:w-[220px] shrink-0 bg-[var(--leather-2)] border-b md:border-b-0 md:border-r border-[var(--line)] p-4 md:p-5 flex flex-row md:flex-col justify-between md:justify-start items-center md:items-stretch z-10 sticky top-0 md:h-screen">
-          <div className="flex items-center gap-3 md:mb-8">
-            <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded border-[1.5px] border-[var(--brass)] object-cover shadow-lg bg-white" />
-            <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight text-white uppercase">{dadosEmpresa?.nome || 'Maggia'}</div>
+        <div className="w-full md:w-[220px] shrink-0 bg-[var(--leather-2)] border-b md:border-b-0 md:border-r border-[var(--line)] p-4 flex flex-col z-20">
+          <div className="flex items-center justify-between md:justify-start gap-3 md:mb-8">
+            <div className="flex items-center gap-3">
+              <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Logo" className="w-9 h-9 md:w-10 md:h-10 rounded border-[1.5px] border-[var(--brass)] object-cover shadow-lg bg-white" />
+              <div className="font-fraunces font-black text-[13px] md:text-[14.5px] leading-tight text-white uppercase">{dadosEmpresa?.nome || 'Maggia'}</div>
+            </div>
+            <div className="md:hidden flex gap-3 items-center">
+               <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link copiado!')}} className="text-[10px] font-bold text-[var(--brass-bright)] border border-[var(--brass)] px-2 py-1 rounded">COPIAR LINK</button>
+               <button onClick={handleSair} className="text-[20px] text-[var(--paper-dim)]">&times;</button>
+            </div>
           </div>
           
           <div className="hidden md:block font-mono text-[10px] tracking-[.1em] uppercase text-[var(--paper-dim)] my-4 px-3">Operação</div>
-          <div className="flex flex-row md:flex-col gap-2 overflow-x-auto hide-scroll">
+          <div className="flex flex-row md:flex-col gap-2 overflow-x-auto hide-scroll pb-1 md:pb-0">
             <button onClick={() => setAbaAtiva('agenda')} className={`px-3 py-2 md:py-2.5 rounded-md text-[13px] font-medium transition-all whitespace-nowrap ${abaAtiva === 'agenda' ? 'bg-[var(--brass)]/10 text-[var(--brass-bright)] border border-[var(--brass)]/30' : 'text-[var(--paper-dim)] hover:bg-[var(--leather-3)]'}`}>Agenda</button>
             {perfilUsuario?.cargo === 'dono' && (
               <>
@@ -408,27 +458,32 @@ export default function AdminDashboard() {
           
           <div className="hidden md:block mt-auto pt-4 border-t border-[var(--line)] text-xs text-[var(--paper-dim)]">
             <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">{perfilUsuario?.nome}</div>
-            <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link do Insta</button>
-            <a href="https://wa.me/5513974211857?text=Ol%C3%A1" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4 flex items-center gap-1">🚀 Assinar Sistema</a>
+            <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link</button>
+            <a href="https://wa.me/5513974211857?text=Ol%C3%A1" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4">🚀 Assinar Sistema</a>
             <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair da Conta</button>
           </div>
         </div>
 
         {/* MAIN CONTENT */}
-        <div className="flex-1 p-5 md:p-9 pb-24 overflow-y-auto">
-          <div className="flex flex-col sm:flex-row justify-between items-start mb-8 gap-4">
+        <div className="flex-1 p-5 md:p-9 overflow-y-auto pb-32">
+          <div className="flex flex-col md:flex-row justify-between items-start mb-8 gap-4">
             <div>
               <div className="font-mono text-[11px] tracking-[.14em] uppercase text-[var(--brass)] mb-2">Painel de Gestão</div>
-              <h1 className="font-fraunces font-extrabold text-[28px] m-0 tracking-[-.01em]">
+              <h1 className="font-fraunces font-extrabold text-[24px] md:text-[28px] m-0 tracking-[-.01em]">
                 {abaAtiva === 'agenda' ? 'Sua Agenda' : abaAtiva === 'servicos' ? 'Catálogo de Serviços' : abaAtiva === 'financeiro' ? 'Relatório Financeiro' : abaAtiva === 'aparencia' ? 'Personalizar Tema' : 'Sua Equipe'}
               </h1>
             </div>
             
-            <div className="w-full sm:w-auto text-right flex gap-2">
-              {abaAtiva === 'servicos' ? <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo Serviço</button> : null}
-              {abaAtiva === 'equipe' ? <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo Profissional</button> : null}
-              {abaAtiva === 'agenda' ? <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg">+ Novo agendamento</button> : null}
-              {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[9px] rounded-[5px] border border-[var(--brass)] text-[var(--brass)] hover:bg-[var(--brass)]/10 shadow-lg">+ Lançar Transação</button>}
+            <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2">
+              {abaAtiva === 'servicos' ? <button onClick={abrirModalCriarServico} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[11px] md:py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg text-center">+ Novo Serviço</button> : null}
+              {abaAtiva === 'equipe' ? <button onClick={abrirModalCriarEquipe} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[11px] md:py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg text-center">+ Novo Profissional</button> : null}
+              {abaAtiva === 'agenda' ? (
+                <>
+                  <button onClick={() => setModalBloqueio(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[11px] md:py-[9px] rounded-[5px] bg-red-900/20 text-red-400 border border-red-900/50 hover:bg-red-900 hover:text-white transition-colors text-center shadow-lg">🔒 Bloquear Horário</button>
+                  <button onClick={() => setModalAgendamento(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[11px] md:py-[9px] rounded-[5px] bg-[var(--brass)] text-[var(--leather)] hover:opacity-90 shadow-lg text-center">+ Novo agendamento</button>
+                </>
+              ) : null}
+              {perfilUsuario?.cargo === 'dono' && abaAtiva === 'financeiro' && <button onClick={() => setModalTransacao(true)} className="w-full sm:w-auto font-semibold text-[12.5px] px-4 py-[11px] md:py-[9px] rounded-[5px] border border-[var(--brass)] text-[var(--brass)] hover:bg-[var(--brass)]/10 shadow-lg text-center">+ Lançar Transação</button>}
             </div>
           </div>
 
@@ -439,12 +494,12 @@ export default function AdminDashboard() {
                 <div className="animate-fade-in max-w-4xl space-y-6">
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6 flex flex-col sm:flex-row items-center gap-6">
                     <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Sua Logo" className="w-24 h-24 rounded-full border-2 border-[var(--brass)] object-cover bg-white" />
-                    <div>
-                      <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Logo da Barbearia</h2>
+                    <div className="text-center sm:text-left">
+                      <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Logo do Negócio</h2>
                       <p className="text-[12px] text-[var(--paper-dim)] mb-4">Recomendamos imagens quadradas (PNG ou JPG).</p>
                       
                       <input type="file" accept="image/*" ref={inputLogoRef} onChange={handleUploadLogo} className="hidden" />
-                      <button onClick={() => inputLogoRef.current.click()} disabled={uploadingLogo} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[var(--brass)]/10 transition-colors">
+                      <button onClick={() => inputLogoRef.current.click()} disabled={uploadingLogo} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[var(--brass)]/10 transition-colors w-full sm:w-auto">
                         {uploadingLogo ? 'Enviando...' : 'Trocar Imagem'}
                       </button>
                     </div>
@@ -477,77 +532,153 @@ export default function AdminDashboard() {
                     <button onClick={() => setFiltroAgenda('todos')} className={`px-4 py-2 text-[11px] font-mono uppercase tracking-[.06em] rounded border transition-all ${filtroAgenda === 'todos' ? 'bg-[var(--leather-3)] text-[var(--brass-bright)] border-[var(--brass)]' : 'bg-transparent text-[var(--paper-dim)] border-[var(--line)] hover:border-[var(--brass)]'}`}>Próximos</button>
                   </div>
 
-                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5">
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-3 md:p-5">
                     <div className="flex justify-between items-center border-b border-[var(--line)] pb-4 mb-4">
                       <span className="font-fraunces font-bold text-[16px] text-[var(--paper)]">Resumo da Agenda</span>
-                      <div className="font-mono text-[11px] text-[var(--paper-dim)]"><span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Cortes · <span className="text-[var(--green)] font-bold">{agendamentos.filter(a => a.status === 'concluido').length}</span> Concluídos</div>
+                      <div className="font-mono text-[11px] text-[var(--paper-dim)]"><span className="text-[var(--brass-bright)] font-bold">{agendamentos.length}</span> Registros</div>
                     </div>
 
                     {agendamentos.length === 0 ? (
                       <div className="text-center py-8 text-[var(--paper-dim)] font-mono text-xs">Agenda livre para este período.</div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse min-w-[700px]">
-                          <thead>
-                            <tr>
-                              <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pl-2">Data / Hora</th>
-                              <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Cliente</th>
-                              <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Profissional</th>
-                              <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Serviço & Valor</th>
-                              <th className="text-right font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pr-2">Ações / Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {agendamentos.map(ag => {
-                              const dataObj = new Date(ag.data_hora_inicio);
-                              const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).substring(0,3);
-                              const diaNum = dataObj.toLocaleDateString('pt-BR', { day: '2-digit' });
-                              const mes = dataObj.toLocaleDateString('pt-BR', { month: 'short' }).substring(0,3);
-                              const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
-                              const isCancelado = ag.status === 'cancelado';
-                              const isConcluido = ag.status === 'concluido';
-                              const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
+                      <>
+                        {/* TABELA PARA DESKTOP */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full border-collapse min-w-[700px]">
+                            <thead>
+                              <tr>
+                                <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pl-2">Data / Hora</th>
+                                <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Cliente / Situação</th>
+                                <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Profissional</th>
+                                <th className="text-left font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)]">Serviço & Valor</th>
+                                <th className="text-right font-mono text-[10px] uppercase tracking-[.06em] text-[var(--paper-dim)] font-normal pb-3 border-b border-[var(--line)] pr-2">Ações / Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {agendamentos.map(ag => {
+                                const dataObj = new Date(ag.data_hora_inicio);
+                                const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).substring(0,3);
+                                const diaNum = dataObj.toLocaleDateString('pt-BR', { day: '2-digit' });
+                                const mes = dataObj.toLocaleDateString('pt-BR', { month: 'short' }).substring(0,3);
+                                const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+                                
+                                const isCancelado = ag.status === 'cancelado';
+                                const isConcluido = ag.status === 'concluido';
+                                const isBloqueio = ag.clientes?.telefone === '00000000000'; // Identifica se é um bloqueio
+                                const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
 
-                              return (
-                                <tr key={ag.id} className={`${isCancelado ? 'opacity-40' : ''} hover:bg-[var(--leather-3)] transition-colors`}>
-                                  <td className="py-3 px-2 border-b border-[var(--line)]">
-                                    <div className="flex items-center gap-3">
-                                      <div className="flex flex-col items-center justify-center bg-[var(--leather-3)] border border-[var(--line)] rounded-[5px] w-[46px] h-[52px] shrink-0">
-                                        <span className="text-[9px] uppercase text-[var(--paper-dim)] font-mono leading-none mt-1">{diaSemana}</span>
-                                        <span className="text-[14px] text-[var(--paper)] font-bold font-mono leading-none my-1">{diaNum}</span>
-                                        <span className="text-[9px] uppercase text-[var(--paper-dim)] font-mono leading-none mb-1">{mes}</span>
+                                return (
+                                  <tr key={ag.id} className={`${isCancelado ? 'opacity-40' : isBloqueio ? 'bg-[#151515] opacity-80' : ''} hover:bg-[var(--leather-3)] transition-colors`}>
+                                    <td className="py-3 px-2 border-b border-[var(--line)]">
+                                      <div className="flex items-center gap-3">
+                                        <div className={`flex flex-col items-center justify-center border rounded-[5px] w-[46px] h-[52px] shrink-0 ${isBloqueio ? 'bg-red-900/10 border-red-900/30' : 'bg-[var(--leather-3)] border-[var(--line)]'}`}>
+                                          <span className="text-[9px] uppercase text-[var(--paper-dim)] font-mono leading-none mt-1">{diaSemana}</span>
+                                          <span className={`text-[14px] font-bold font-mono leading-none my-1 ${isBloqueio ? 'text-red-400' : 'text-[var(--paper)]'}`}>{diaNum}</span>
+                                          <span className="text-[9px] uppercase text-[var(--paper-dim)] font-mono leading-none mb-1">{mes}</span>
+                                        </div>
+                                        <span className={`font-mono text-[15px] font-bold ${isBloqueio ? 'text-red-400' : 'text-[var(--copper-bright)]'}`}>{hora}</span>
                                       </div>
-                                      <span className="font-mono text-[var(--copper-bright)] text-[15px] font-bold">{hora}</span>
+                                    </td>
+                                    
+                                    <td className="py-3 border-b border-[var(--line)] font-semibold text-[13px] text-[var(--paper)]">
+                                      {isBloqueio ? <span className="text-red-400">🔒 HORÁRIO BLOQUEADO</span> : ag.clientes?.nome}
+                                      {!isBloqueio && <div className="text-[10.5px] text-[var(--paper-dim)] font-mono mt-1">{ag.clientes?.telefone}</div>}
+                                    </td>
+                                    
+                                    <td className="py-3 border-b border-[var(--line)] text-[12.5px] text-[var(--paper)]">{ag.barbeiros?.nome || 'Não atribuído'}</td>
+                                    
+                                    <td className="py-3 border-b border-[var(--line)]">
+                                      {isBloqueio ? (
+                                        <div className="text-[11px] text-[var(--paper-dim)]">Indisponível para marcações</div>
+                                      ) : (
+                                        <>
+                                          <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
+                                          <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(precoEfetivo).toFixed(2)}</div>
+                                        </>
+                                      )}
+                                    </td>
+                                    
+                                    <td className="py-3 px-2 border-b border-[var(--line)] text-right">
+                                      {isBloqueio ? (
+                                        <button onClick={() => removerBloqueio(ag.id)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-red-900/20 text-red-400 border border-red-900/30 hover:bg-red-900 hover:text-white transition-colors">Desbloquear Horário</button>
+                                      ) : isCancelado ? (
+                                        <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]">Cancelado</span>
+                                      ) : isConcluido ? (
+                                        <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>
+                                      ) : (
+                                        <div className="flex justify-end gap-2">
+                                          <button onClick={() => enviarWhatsApp(ag)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 hover:bg-[#25D366] hover:text-black transition-colors">WhatsApp</button>
+                                          <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">Cancelar</button>
+                                          <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">✔ Concluir</button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* CARDS PARA CELULAR */}
+                        <div className="md:hidden flex flex-col gap-4">
+                          {agendamentos.map(ag => {
+                            const dataObj = new Date(ag.data_hora_inicio);
+                            const diaSemana = dataObj.toLocaleDateString('pt-BR', { weekday: 'short' }).substring(0,3);
+                            const diaNum = dataObj.toLocaleDateString('pt-BR', { day: '2-digit' });
+                            const mes = dataObj.toLocaleDateString('pt-BR', { month: 'short' }).substring(0,3);
+                            const hora = dataObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+                            
+                            const isCancelado = ag.status === 'cancelado';
+                            const isConcluido = ag.status === 'concluido';
+                            const isBloqueio = ag.clientes?.telefone === '00000000000';
+                            const precoEfetivo = ag.servicos?.preco_promocional || ag.servicos?.preco || 0;
+
+                            return (
+                              <div key={ag.id} className={`p-4 rounded-lg border flex flex-col gap-3 ${isCancelado ? 'opacity-50 bg-[var(--leather-3)] border-[var(--line)]' : isBloqueio ? 'bg-[#120505] border-red-900/30' : 'bg-[var(--leather-3)] border-[var(--line)]'}`}>
+                                <div className="flex justify-between items-start border-b border-[var(--line)] pb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`flex flex-col items-center justify-center border rounded w-[42px] h-[48px] shrink-0 ${isBloqueio ? 'bg-red-900/10 border-red-900/20' : 'bg-[var(--leather-2)] border-[var(--line)]'}`}>
+                                      <span className={`text-[14px] font-bold font-mono leading-none ${isBloqueio ? 'text-red-400' : 'text-[var(--paper)]'}`}>{diaNum}</span>
                                     </div>
-                                  </td>
-                                  <td className="py-3 border-b border-[var(--line)] font-semibold text-[13px] text-[var(--paper)]">
-                                    {ag.clientes?.nome}
-                                    <div className="text-[10.5px] text-[var(--paper-dim)] font-mono mt-1">{ag.clientes?.telefone}</div>
-                                  </td>
-                                  <td className="py-3 border-b border-[var(--line)] text-[12.5px] text-[var(--paper)]">{ag.barbeiros?.nome || 'Não atribuído'}</td>
-                                  <td className="py-3 border-b border-[var(--line)]">
-                                    <div className="text-[12.5px] text-[var(--paper)]">{ag.servicos?.nome}</div>
-                                    <div className="font-mono text-[11px] text-[var(--brass)] mt-1">R$ {Number(precoEfetivo).toFixed(2)}</div>
-                                  </td>
-                                  <td className="py-3 px-2 border-b border-[var(--line)] text-right">
-                                    {isCancelado ? (
-                                      <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]">Cancelado</span>
-                                    ) : isConcluido ? (
-                                      <span className="text-[10px] font-bold py-1.5 px-[10px] rounded-full uppercase tracking-[.03em] bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>
-                                    ) : (
-                                      <div className="flex justify-end gap-2">
-                                        <button onClick={() => enviarWhatsApp(ag)} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 hover:bg-[#25D366] hover:text-black transition-colors">WhatsApp</button>
-                                        <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] hover:bg-[var(--copper)] hover:text-white transition-colors">Cancelar</button>
-                                        <button onClick={() => alterarStatus(ag.id, 'concluido')} className="text-[10px] font-bold py-1.5 px-[10px] rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] hover:bg-[var(--brass)] hover:text-[var(--leather)] transition-colors">✔ Concluir</button>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                                    <div>
+                                      <div className={`font-mono text-[16px] font-bold leading-tight ${isBloqueio ? 'text-red-400' : 'text-[var(--copper-bright)]'}`}>{hora}</div>
+                                      <div className="text-[10px] text-[var(--paper-dim)] uppercase tracking-wider">{diaSemana}, {mes}</div>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    {isBloqueio && <span className="text-[9px] font-bold py-1 px-2 rounded-full uppercase bg-red-900/20 text-red-400 border border-red-900/30">BLOQUEADO</span>}
+                                    {isCancelado && <span className="text-[9px] font-bold py-1 px-2 rounded-full uppercase bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)] border border-[var(--line)]">Cancelado</span>}
+                                    {isConcluido && <span className="text-[9px] font-bold py-1 px-2 rounded-full uppercase bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.4)]">Finalizado</span>}
+                                  </div>
+                                </div>
+                                
+                                <div>
+                                  <div className={`font-bold text-[14.5px] ${isBloqueio ? 'text-red-400' : 'text-[var(--paper)]'}`}>{isBloqueio ? '🔒 HORÁRIO BLOQUEADO' : ag.clientes?.nome}</div>
+                                  {!isBloqueio && <div className="text-[11.5px] text-[var(--paper-dim)] font-mono">{ag.clientes?.telefone}</div>}
+                                </div>
+                                
+                                <div>
+                                  <div className="text-[13px] text-[var(--paper)]">{isBloqueio ? 'Indisponível para marcações online' : ag.servicos?.nome}</div>
+                                  <div className="text-[11px] font-mono text-[var(--brass)] mt-0.5">{!isBloqueio && `R$ ${Number(precoEfetivo).toFixed(2)} • `}Profissional: {ag.barbeiros?.nome || 'N/A'}</div>
+                                </div>
+
+                                {isBloqueio ? (
+                                  <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
+                                    <button onClick={() => removerBloqueio(ag.id)} className="flex-1 text-[11px] font-bold py-2.5 rounded-md uppercase tracking-[.03em] bg-red-900/20 text-red-400 border border-red-900/30 active:bg-red-900 active:text-white">Liberar / Desbloquear</button>
+                                  </div>
+                                ) : !isCancelado && !isConcluido && (
+                                  <div className="flex gap-2 pt-3 border-t border-[var(--line)]">
+                                    <button onClick={() => enviarWhatsApp(ag)} className="flex-1 text-[10px] font-bold py-2 rounded-md uppercase tracking-[.03em] bg-[#25D366]/10 text-[#25D366] border border-[#25D366]/30 active:bg-[#25D366] active:text-black">ZAP</button>
+                                    <button onClick={() => alterarStatus(ag.id, 'cancelado')} className="flex-1 text-[10px] font-bold py-2 rounded-md uppercase tracking-[.03em] bg-[rgba(168,92,46,0.15)] text-[var(--copper-bright)] border border-[rgba(168,92,46,0.35)] active:bg-[var(--copper)] active:text-white">Cancelar</button>
+                                    <button onClick={() => alterarStatus(ag.id, 'concluido')} className="flex-1 text-[10px] font-bold py-2 rounded-md uppercase tracking-[.03em] bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.35)] active:bg-[var(--brass)] active:text-[var(--leather)]">Concluir</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
@@ -565,7 +696,7 @@ export default function AdminDashboard() {
                       {servicos.map(s => {
                         const temPromo = s.preco_promocional && Number(s.preco_promocional) > 0;
                         return (
-                          <div key={s.id} className={`flex flex-col sm:flex-row justify-between sm:items-center bg-[var(--leather-3)] p-4 rounded-md border gap-3 ${s.ativo ? 'border-[var(--line)]' : 'border-red-900/40 opacity-60'}`}>
+                          <div key={s.id} className={`flex flex-col sm:flex-row justify-between sm:items-center bg-[var(--leather-3)] p-4 rounded-md border gap-4 ${s.ativo ? 'border-[var(--line)]' : 'border-red-900/40 opacity-60'}`}>
                             <div>
                               <div className="flex items-center gap-2">
                                 <span className="text-[14px] font-semibold text-[var(--paper)]">{s.nome}</span>
@@ -573,8 +704,8 @@ export default function AdminDashboard() {
                               </div>
                               <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">Tempo Padrão: {s.duracao_minutos || 30} min</div>
                             </div>
-                            <div className="flex items-center gap-3 justify-between sm:justify-end">
-                              <div className="text-right">
+                            <div className="flex items-center gap-3 justify-between sm:justify-end border-t border-[var(--line)] sm:border-0 pt-3 sm:pt-0">
+                              <div className="text-left sm:text-right flex-1 sm:flex-none">
                                 {temPromo ? (
                                   <div>
                                     <span className="text-[11px] font-mono text-[var(--paper-dim)] line-through mr-2">R$ {Number(s.preco).toFixed(2)}</span>
@@ -584,8 +715,10 @@ export default function AdminDashboard() {
                                   <span className="font-mono text-[15px] font-bold text-[var(--brass-bright)]">R$ {Number(s.preco).toFixed(2)}</span>
                                 )}
                               </div>
-                              <button onClick={() => abrirModalEditarServico(s)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
-                              <button onClick={() => toggleStatusServico(s.id, s.ativo)} className={`text-[10px] font-bold py-1.5 px-3 rounded uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)]' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>{s.ativo ? 'Ativo' : 'Inativo'}</button>
+                              <div className="flex gap-2">
+                                <button onClick={() => abrirModalEditarServico(s)} className="text-[11px] font-bold py-2 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
+                                <button onClick={() => toggleStatusServico(s.id, s.ativo)} className={`text-[10px] font-bold py-2 px-3 rounded uppercase tracking-wider transition-colors ${s.ativo ? 'bg-[rgba(127,168,107,0.15)] text-[var(--green)] border border-[rgba(127,168,107,0.3)]' : 'bg-red-900/20 text-red-400 border border-red-500/30'}`}>{s.ativo ? 'Ativo' : 'Inativo'}</button>
+                              </div>
                             </div>
                           </div>
                         );
@@ -605,21 +738,21 @@ export default function AdminDashboard() {
                     </div>
                     <div className="grid gap-3">
                       {equipe.map(membro => (
-                        <div key={membro.id} className="flex justify-between items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)]">
+                        <div key={membro.id} className="flex flex-col sm:flex-row justify-between sm:items-center bg-[var(--leather-3)] p-4 rounded-md border border-[var(--line)] gap-4">
                           <div>
                             <div className="text-[14px] font-semibold text-[var(--paper)] flex items-center gap-2">
                               {membro.nome}
                               <span className={`text-[9px] font-bold py-0.5 px-2 rounded-sm uppercase tracking-wider ${membro.cargo === 'dono' ? 'bg-[rgba(201,162,75,0.15)] text-[var(--brass-bright)] border border-[rgba(201,162,75,0.3)]' : 'bg-[rgba(239,230,216,0.06)] text-[var(--paper-dim)]'}`}>{membro.cargo}</span>
                             </div>
                             <div className="text-[11px] font-mono text-[var(--paper-dim)] mt-1">
-                              {membro.telefone || 'Sem telefone'} · <span className="text-[var(--brass-bright)]">{membro.email || 'Sem e-mail cadastrado'}</span>
+                              {membro.telefone || 'Sem telefone'} · <span className="text-[var(--brass-bright)]">{membro.email || 'Sem e-mail'}</span>
                             </div>
                           </div>
                           
-                          <div className="flex gap-2">
-                            <button onClick={() => abrirModalEditarEquipe(membro)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
+                          <div className="flex gap-2 w-full sm:w-auto">
+                            <button onClick={() => abrirModalEditarEquipe(membro)} className="flex-1 sm:flex-none text-[11px] font-bold py-2 px-4 rounded bg-[var(--leather-2)] border border-[var(--brass)] text-[var(--brass-bright)] hover:bg-[var(--brass)] hover:text-black transition-colors">Editar</button>
                             {membro.id !== perfilUsuario.id && (
-                              <button onClick={() => excluirProfissional(membro.id, membro.nome)} className="text-[11px] font-bold py-1.5 px-3 rounded bg-red-900/20 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white transition-colors">Excluir</button>
+                              <button onClick={() => excluirProfissional(membro.id, membro.nome)} className="flex-1 sm:flex-none text-[11px] font-bold py-2 px-4 rounded bg-red-900/20 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white transition-colors">Excluir</button>
                             )}
                           </div>
                         </div>
@@ -639,21 +772,21 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                    <div onClick={() => setModalDetalhes('ENTRADAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--brass)] transition-all group">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--brass-bright)] transition-colors">Entradas Totais <span>Ver →</span></div>
+                    <div onClick={() => setModalDetalhes('ENTRADAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:border-[var(--brass)] transition-all">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Entradas Totais <span className="text-[var(--brass-bright)]">Ver →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--brass-bright)]">R$ {totalEntradas.toFixed(2)}</div>
                     </div>
-                    <div onClick={() => setModalDetalhes('SAIDAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--copper-bright)] transition-all group">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--copper-bright)] transition-colors">Saídas / Despesas <span>Ver →</span></div>
+                    <div onClick={() => setModalDetalhes('SAIDAS')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:border-[var(--copper-bright)] transition-all">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Saídas / Despesas <span className="text-[var(--copper-bright)]">Ver →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--copper-bright)]">R$ {totalSaidas.toFixed(2)}</div>
                     </div>
-                    <div onClick={() => setModalDetalhes('GERAL')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:scale-[1.02] hover:border-[var(--paper)] transition-all group">
-                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center group-hover:text-[var(--paper)] transition-colors">Saldo Líquido <span>Ver Extrato →</span></div>
+                    <div onClick={() => setModalDetalhes('GERAL')} className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 cursor-pointer hover:border-[var(--paper)] transition-all">
+                      <div className="text-[11.5px] text-[var(--paper-dim)] mb-2 flex justify-between items-center">Saldo Líquido <span className="text-[var(--paper)]">Ver Extrato →</span></div>
                       <div className="font-fraunces font-extrabold text-[26px] text-[var(--paper)]">R$ {saldoLiquido.toFixed(2)}</div>
                     </div>
                   </div>
 
-                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6">
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-5 md:p-6">
                     <div className="flex justify-between items-center mb-6">
                       <span className="font-fraunces font-bold text-[16px]">Faturamento Diário</span>
                     </div>
@@ -665,10 +798,10 @@ export default function AdminDashboard() {
                           const valor = dadosGrafico[dia];
                           const alturaPerc = maxFaturamentoDia > 0 ? (valor / maxFaturamentoDia) * 100 : 0;
                           return (
-                            <div key={dia} className="flex flex-col justify-end items-center flex-1 min-w-[40px] group h-full">
-                              <span className="text-[10px] text-[var(--brass-bright)] font-mono mb-2 opacity-0 group-hover:opacity-100 transition-opacity">R${valor.toFixed(0)}</span>
+                            <div key={dia} className="flex flex-col justify-end items-center flex-1 min-w-[35px] sm:min-w-[40px] group h-full">
+                              <span className="text-[9px] sm:text-[10px] text-[var(--brass-bright)] font-mono mb-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">R${valor.toFixed(0)}</span>
                               <div className="w-full bg-[rgba(201,162,75,0.4)] hover:bg-[var(--brass)] rounded-t-sm transition-all duration-500" style={{ height: `${alturaPerc}%`, minHeight: '4px' }}></div>
-                              <span className="text-[10px] font-mono text-[var(--paper-dim)] mt-2">{dia}</span>
+                              <span className="text-[9px] sm:text-[10px] font-mono text-[var(--paper-dim)] mt-2">{dia}</span>
                             </div>
                           );
                         })}
@@ -681,18 +814,78 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* MODAIS */}
+        {/* --- MODAL DE BLOQUEAR HORÁRIO --- */}
+        {modalBloqueio && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-red-900/50 p-6 rounded-lg w-full max-w-md shadow-[0_0_40px_rgba(153,27,27,0.3)]">
+              <h2 className="text-[19px] font-fraunces font-bold text-red-400 mb-1">Bloquear Horário</h2>
+              <p className="text-xs text-[var(--paper-dim)] mb-4">A IA não marcará clientes neste período.</p>
+              <form onSubmit={salvarBloqueio} className="space-y-3">
+                <select required onChange={e => setFormBloqueio({...formBloqueio, profissional_id: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-red-400 outline-none">
+                  <option value="">Qual profissional ficará indisponível?</option>
+                  {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+                <div className="flex gap-3">
+                  <input type="date" required onChange={e => setFormBloqueio({...formBloqueio, data: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-red-400 outline-none" style={{colorScheme:'dark'}}/>
+                  <input type="time" required onChange={e => setFormBloqueio({...formBloqueio, hora: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-red-400 outline-none" style={{colorScheme:'dark'}}/>
+                </div>
+                <select required value={formBloqueio.duracao_minutos} onChange={e => setFormBloqueio({...formBloqueio, duracao_minutos: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-red-400 outline-none">
+                  <option value="15">Bloquear por 15 minutos</option>
+                  <option value="30">Bloquear por 30 minutos</option>
+                  <option value="60">Bloquear por 1 hora</option>
+                  <option value="120">Bloquear por 2 horas</option>
+                  <option value="240">Bloquear por 4 horas</option>
+                  <option value="480">Bloquear o Dia Todo (8h)</option>
+                </select>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setModalBloqueio(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[14px] bg-red-900/80 text-white border border-red-500/50 rounded font-semibold text-[12.5px] hover:bg-red-800 transition-colors">Confirmar Bloqueio</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL NOVO AGENDAMENTO MANUAL */}
+        {modalAgendamento && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
+            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
+              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Agendar Manualmente</h2>
+              <form onSubmit={salvarAgendamentoManual} className="space-y-3 mt-4">
+                <input type="text" placeholder="Nome do Cliente" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, cliente: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="tel" placeholder="Telefone" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, telefone: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, profissional_id: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                  <option value="">Quem vai atender?</option>
+                  {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+                <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, servico_id: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                  <option value="">Qual o Serviço?</option>
+                  {servicos.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+                <div className="flex gap-3">
+                  <input type="date" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, data: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
+                  <input type="time" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, hora: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setModalAgendamento(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[14px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Confirmar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {modalEquipe && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{membroEditandoId ? 'Editar Profissional' : 'Adicionar Profissional'}</h2>
               <form onSubmit={salvarProfissional} className="space-y-3 mt-4">
-                <input type="text" placeholder="Nome Completo" required value={formEquipe.nome} onChange={e => setFormEquipe({...formEquipe, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="tel" placeholder="Telefone / WhatsApp" value={formEquipe.telefone} onChange={e => setFormEquipe({...formEquipe, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="email" placeholder="E-mail" required value={formEquipe.email} onChange={e => setFormEquipe({...formEquipe, email: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="text" placeholder="Nome Completo" required value={formEquipe.nome} onChange={e => setFormEquipe({...formEquipe, nome: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="tel" placeholder="Telefone / WhatsApp" value={formEquipe.telefone} onChange={e => setFormEquipe({...formEquipe, telefone: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="email" placeholder="E-mail" required value={formEquipe.email} onChange={e => setFormEquipe({...formEquipe, email: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <div className="flex gap-3 mt-6">
-                  <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
-                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Salvar</button>
+                  <button type="button" onClick={() => setModalEquipe(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[14px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Salvar</button>
                 </div>
               </form>
             </div>
@@ -704,12 +897,12 @@ export default function AdminDashboard() {
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{servicoEditandoId ? 'Editar Serviço' : 'Novo Serviço'}</h2>
               <form onSubmit={salvarServico} className="space-y-4 overflow-y-auto pr-1 hide-scroll flex-1 mt-4">
-                <input type="text" placeholder="Nome do Serviço" required value={formServico.nome} onChange={e => setFormServico({...formServico, nome: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="text" placeholder="Nome do Serviço" required value={formServico.nome} onChange={e => setFormServico({...formServico, nome: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <div className="grid grid-cols-2 gap-3">
-                  <input type="number" step="0.01" placeholder="Preço (R$)" required value={formServico.preco} onChange={e => setFormServico({...formServico, preco: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                  <input type="number" step="0.01" placeholder="Preço Promoção" value={formServico.preco_promocional} onChange={e => setFormServico({...formServico, preco_promocional: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                  <input type="number" step="0.01" placeholder="Preço (R$)" required value={formServico.preco} onChange={e => setFormServico({...formServico, preco: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                  <input type="number" step="0.01" placeholder="Preço Promoção" value={formServico.preco_promocional} onChange={e => setFormServico({...formServico, preco_promocional: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 </div>
-                <select value={formServico.duracao_minutos} onChange={e => setFormServico({...formServico, duracao_minutos: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
+                <select value={formServico.duracao_minutos} onChange={e => setFormServico({...formServico, duracao_minutos: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
                   <option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option>
                 </select>
                 {equipe.length > 0 && (
@@ -717,9 +910,9 @@ export default function AdminDashboard() {
                     <label className="block text-[11px] font-mono text-[var(--brass-bright)] uppercase mb-2">Tempo por Profissional (Minutos)</label>
                     <div className="space-y-2">
                       {equipe.map(p => (
-                        <div key={p.id} className="flex justify-between items-center bg-[var(--leather-3)] p-2.5 rounded border border-[var(--line)]">
-                          <span className="text-xs font-semibold text-[var(--paper)]">{p.nome}</span>
-                          <select value={temposPorProfissional[p.id] || formServico.duracao_minutos} onChange={e => setTemposPorProfissional({...temposPorProfissional, [p.id]: e.target.value})} className="p-1.5 bg-[var(--leather-2)] border border-[var(--line)] rounded text-xs text-[var(--brass-bright)] font-mono outline-none">
+                        <div key={p.id} className="flex justify-between items-center bg-[var(--leather-3)] p-3 rounded border border-[var(--line)]">
+                          <span className="text-[13px] font-semibold text-[var(--paper)]">{p.nome}</span>
+                          <select value={temposPorProfissional[p.id] || formServico.duracao_minutos} onChange={e => setTemposPorProfissional({...temposPorProfissional, [p.id]: e.target.value})} className="p-2 bg-[var(--leather-2)] border border-[var(--line)] rounded text-[13px] text-[var(--brass-bright)] font-mono outline-none">
                             <option value="15">15 min</option><option value="20">20 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option>
                           </select>
                         </div>
@@ -728,8 +921,8 @@ export default function AdminDashboard() {
                   </div>
                 )}
                 <div className="flex gap-3 pt-4 border-t border-[var(--line)]">
-                  <button type="button" onClick={() => setModalServico(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
-                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Salvar</button>
+                  <button type="button" onClick={() => setModalServico(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[14px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Salvar</button>
                 </div>
               </form>
             </div>
@@ -744,7 +937,7 @@ export default function AdminDashboard() {
                   <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">{tituloDetalhes}</h2>
                   <div className="text-[11px] text-[var(--paper-dim)] font-mono">Período: {filtroFinanceiro.replace('_', ' ').toUpperCase()}</div>
                 </div>
-                <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-xl font-bold p-2">&times;</button>
+                <button onClick={() => setModalDetalhes(null)} className="text-[var(--paper-dim)] hover:text-[var(--paper)] text-2xl font-bold p-2">&times;</button>
               </div>
               <div className="overflow-y-auto flex-1 hide-scroll pr-2 space-y-3">
                 {detalhesAtuais.map((item, idx) => {
@@ -771,48 +964,20 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {modalAgendamento && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
-            <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
-              <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Agendar Manualmente</h2>
-              <form onSubmit={salvarAgendamentoManual} className="space-y-3 mt-4">
-                <input type="text" placeholder="Nome do Cliente" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, cliente: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="tel" placeholder="Telefone" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, telefone: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, profissional_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
-                  <option value="">Quem vai atender?</option>
-                  {equipe.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                </select>
-                <select required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, servico_id: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none">
-                  <option value="">Qual o Serviço?</option>
-                  {servicos.filter(s => s.ativo).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
-                <div className="flex gap-3">
-                  <input type="date" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, data: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
-                  <input type="time" required onChange={e => setFormNovoAgendamento({...formNovoAgendamento, hora: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" style={{colorScheme:'dark'}}/>
-                </div>
-                <div className="flex gap-3 mt-6">
-                  <button type="button" onClick={() => setModalAgendamento(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
-                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Confirmar</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
               <h2 className="text-[19px] font-fraunces font-bold text-[var(--paper)] mb-1">Nova Movimentação</h2>
               <form onSubmit={salvarTransacaoManual} className="space-y-3 mt-4">
-                <select required value={formTransacao.tipo} onChange={e => setFormTransacao({...formTransacao, tipo: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm font-semibold focus:border-[var(--brass)] outline-none">
+                <select required value={formTransacao.tipo} onChange={e => setFormTransacao({...formTransacao, tipo: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm font-semibold focus:border-[var(--brass)] outline-none">
                   <option value="SAIDA">Saída / Despesa</option>
                   <option value="ENTRADA">Entrada Extra</option>
                 </select>
-                <input type="text" placeholder="Descrição" required onChange={e => setFormTransacao({...formTransacao, descricao: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
-                <input type="number" step="0.01" placeholder="Valor (R$)" required onChange={e => setFormTransacao({...formTransacao, valor: e.target.value})} className="w-full p-3 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="text" placeholder="Descrição" required onChange={e => setFormTransacao({...formTransacao, descricao: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
+                <input type="number" step="0.01" placeholder="Valor (R$)" required onChange={e => setFormTransacao({...formTransacao, valor: e.target.value})} className="w-full p-4 bg-[var(--leather-3)] border border-[var(--line)] rounded text-[var(--paper)] text-sm focus:border-[var(--brass)] outline-none" />
                 <div className="flex gap-3 mt-6">
-                  <button type="button" onClick={() => setModalTransacao(false)} className="flex-1 py-[11px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
-                  <button type="submit" className="flex-1 py-[11px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Registrar</button>
+                  <button type="button" onClick={() => setModalTransacao(false)} className="flex-1 py-[14px] border border-[var(--paper-dim)] text-[var(--paper)] rounded font-semibold text-[12.5px] hover:bg-[var(--leather-3)] transition-colors">Cancelar</button>
+                  <button type="submit" className="flex-1 py-[14px] bg-[var(--brass)] text-[var(--leather)] rounded font-semibold text-[12.5px] hover:opacity-90 transition-opacity">Registrar</button>
                 </div>
               </form>
             </div>
