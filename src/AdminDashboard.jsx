@@ -199,8 +199,21 @@ export default function AdminDashboard() {
   }
 
   async function removerBloqueio(id) {
-    await supabase.from('agendamentos').delete().eq('id', id);
-    carregarAgenda();
+    const confirmar = window.confirm("Tem certeza que deseja liberar / desbloquear este horário?");
+    if (!confirmar) return; // Se o usuário cancelar, não faz nada.
+
+    setLoading(true); // Mostra que está carregando na tela
+
+    // Tenta deletar no banco
+    const { error } = await supabase.from('agendamentos').delete().eq('id', id);
+    
+    if (error) {
+      alert("Erro ao desbloquear no banco de dados: " + error.message);
+      setLoading(false);
+    } else {
+      alert("Horário liberado com sucesso!");
+      await carregarAgenda(); // Força recarregar a agenda
+    }
   }
 
   async function salvarTema(novoTema) {
