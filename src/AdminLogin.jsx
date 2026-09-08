@@ -8,6 +8,11 @@ export default function AdminLogin() {
   const [view, setView] = useState('LOGIN'); 
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  // NOVOS ESTADOS DE SEGURANÇA
+  const [tentativas, setTentativas] = useState(0);
+  const [bloqueado, setBloqueado] = useState(false);
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -24,11 +29,35 @@ export default function AdminLogin() {
 
   async function handleLogin(e) {
     e.preventDefault();
+    
+    // VERIFICAÇÃO DE SEGURANÇA (ESCUDO ANTI-FORÇA BRUTA)
+    if (bloqueado) {
+        setStatus('ALERTA DE SEGURANÇA: Muitas tentativas inválidas. Contate o suporte para desbloqueio.');
+        return;
+    }
+
     setLoading(true);
     setStatus('Autenticando...');
+    
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setStatus('Erro: ' + error.message);
-    else navigate('/dashboard');
+    
+    if (error) {
+        // INCREMENTA O ERRO SE FALHAR
+        const novosErros = tentativas + 1;
+        setTentativas(novosErros);
+        
+        if (novosErros >= 5) {
+            setBloqueado(true);
+            setStatus('CONTA BLOQUEADA POR SEGURANÇA. Limite de tentativas excedido. Contate o administrador do sistema.');
+        } else {
+            setStatus(`Erro: ${error.message} (Tentativa ${novosErros}/5)`);
+        }
+    } else {
+        // ZERO AS TENTATIVAS SE ACERTAR
+        setTentativas(0);
+        navigate('/dashboard');
+    }
+    
     setLoading(false);
   }
 
@@ -72,7 +101,7 @@ export default function AdminLogin() {
       <style>{brandStyles}</style>
       <div className="brand-theme relative min-h-screen flex flex-col justify-center items-center p-4 overflow-hidden bg-black">
         
-        {/* VÍDEO DE FUNDO - Verifique se a extensão é .mp4 ou .MP4 e ajuste abaixo */}
+        {/* VÍDEO DE FUNDO */}
         <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover z-0 opacity-50 mix-blend-screen">
           <source src="/slogan.mp4" type="video/mp4" />
         </video>
@@ -81,7 +110,6 @@ export default function AdminLogin() {
         <div className="w-full max-w-md bg-black/70 border border-[var(--line)] p-8 sm:p-10 rounded-2xl shadow-[0_0_40px_rgba(201,162,75,0.1)] relative z-10 backdrop-blur-xl">
           
           <div className="text-center mb-8 flex flex-col items-center">
-            {/* LOGO - Verifique se a extensão é .jpg, .png ou .JPG e ajuste abaixo */}
             <img src="/logomaggia.JPG" alt="Maggia Logo" className="h-14 object-contain mb-3 rounded-md opacity-90 mix-blend-lighten" />
             <h2 className="font-extrabold text-xl tracking-widest text-white uppercase m-0">Plataforma</h2>
             <p className="font-mono text-[var(--maggia-gold)] tracking-[0.15em] text-[10px] uppercase mt-2">Tecnologia & SaaS</p>
@@ -92,7 +120,7 @@ export default function AdminLogin() {
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
                 <label className="block font-mono text-[10px] tracking-[0.1em] uppercase text-gray-400 mb-2">E-mail Corporativo</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full p-3 bg-black/60 border border-[var(--line)] text-white rounded-lg focus:outline-none focus:border-[var(--maggia-gold)] text-sm" />
+                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} disabled={bloqueado} className="w-full p-3 bg-black/60 border border-[var(--line)] text-white rounded-lg focus:outline-none focus:border-[var(--maggia-gold)] text-sm disabled:opacity-50" />
               </div>
               <div>
                 <div className="flex justify-between items-center mb-2">
@@ -101,10 +129,10 @@ export default function AdminLogin() {
                     Esqueceu a senha?
                   </button>
                 </div>
-                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full p-3 bg-black/60 border border-[var(--line)] text-white rounded-lg focus:outline-none focus:border-[var(--maggia-gold)] text-sm" />
+                <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} disabled={bloqueado} className="w-full p-3 bg-black/60 border border-[var(--line)] text-white rounded-lg focus:outline-none focus:border-[var(--maggia-gold)] text-sm disabled:opacity-50" />
               </div>
-              <button type="submit" disabled={loading} className="w-full py-3.5 mt-4 bg-gradient-to-r from-[var(--maggia-gold)] to-[var(--maggia-gold-bright)] text-black font-extrabold text-[12px] tracking-widest uppercase transition-all duration-300 rounded-lg shadow-[0_0_20px_rgba(201,162,75,0.3)] hover:scale-[1.02] disabled:opacity-50">
-                {loading ? 'Carregando...' : 'Acessar Sistema'}
+              <button type="submit" disabled={loading || bloqueado} className="w-full py-3.5 mt-4 bg-gradient-to-r from-[var(--maggia-gold)] to-[var(--maggia-gold-bright)] text-black font-extrabold text-[12px] tracking-widest uppercase transition-all duration-300 rounded-lg shadow-[0_0_20px_rgba(201,162,75,0.3)] hover:scale-[1.02] disabled:opacity-50 disabled:hover:scale-100">
+                {loading ? 'Carregando...' : bloqueado ? 'ACESSO BLOQUEADO' : 'Acessar Sistema'}
               </button>
             </form>
           )}
@@ -147,7 +175,7 @@ export default function AdminLogin() {
           )}
 
           {status && (
-            <div className={`mt-5 p-3 rounded border text-center font-mono text-[11px] ${status.includes('Erro') ? 'bg-red-900/20 border-red-900/50 text-red-400' : 'bg-[rgba(201,162,75,0.1)] border-[var(--line)] text-[var(--maggia-gold-bright)]'}`}>
+            <div className={`mt-5 p-3 rounded border text-center font-mono text-[11px] font-bold ${status.includes('Erro') || status.includes('ALERTA') || status.includes('BLOQUEADA') ? 'bg-red-900/20 border-red-900/50 text-red-400' : 'bg-[rgba(201,162,75,0.1)] border-[var(--line)] text-[var(--maggia-gold-bright)]'}`}>
               {status}
             </div>
           )}

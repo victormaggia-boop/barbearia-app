@@ -14,11 +14,10 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// DEFINA O SLUG DA BARBEARIA QUE ESTE BOT ATENDE
 const EMPRESA_SLUG = 'barber-halley'; 
 const NUMERO_ADMIN = '5513974211857@c.us'; 
 
-// 2. INICIALIZAÇÃO DO WHATSAPP (COM SESSÃO NOMEADA PARA A RAILWAY)
+// 2. INICIALIZAÇÃO DO WHATSAPP
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: EMPRESA_SLUG }),
     puppeteer: {
@@ -37,6 +36,58 @@ const client = new Client({
 
 const historicoConversas = new Map();
 const cronometros = new Map();
+
+// --- ESCUDO ANTI-SPAM (RATE LIMITER) ---
+const controleSpam = new Map(); 
+
+function verificaSpam(numero) {
+    const agora = Date.now();
+    const dados = controleSpam.get(numero) || { contagem: 0, inicio: agora, bloqueadoAte: 0 };
+    
+    // Se está bloqueado, verifica se já passou 1 hora (3600000 ms)
+    if (dados.bloqueadoAte > agora) return true;
+    
+    // Se passaram 10 segundos desde a primeira msg, zera o contador
+    if (agora - dados.inicio > 10000) {
+        dados.contagem = 1;
+        dados.inicio = agora;
+    } else {
+        dados.contagem += 1;
+    }
+    
+    // Se mandou 5 msgs em menos de 10s, bloqueia por 1 hora
+    if (dados.contagem >= 5) {
+        console.warn(`🚨 [ANTI-SPAM] Número ${numero} bloqueado temporariamente por excesso de mensagens.`);
+        dados.bloqueadoAte = agora + 3600000; 
+        controleSpam.set(numero, dados);
+        return true; 
+    }
+    
+    controleSpam.set(numero, dados);
+    return false;
+}
+// ----------------------------------------
+
+// --- FUNÇÃO AUXILIAR PARA GERAR GRADE COM ALMOÇO ---
+function gerarGradeDeHorarios(barbeiro) {
+    const grade = [];
+    const inicioExp = parseInt((barbeiro.expediente_inicio || '09:00').split(':')[0]);
+    const fimExp = parseInt((barbeiro.expediente_fim || '19:00').split(':')[0]);
+    
+    const almocoInicioStr = barbeiro.almoco_inicio || '12:00';
+    const almocoFimStr = barbeiro.almoco_fim || '13:00';
+
+    for (let h = inicioExp; h <= fimExp; h++) {
+        const horaCheia = `${h.toString().padStart(2, '0')}:00`;
+        const horaMeia = `${h.toString().padStart(2, '0')}:30`;
+        
+        // Só adiciona na grade se não estiver no intervalo de almoço
+        if (horaCheia < almocoInicioStr || horaCheia >= almocoFimStr) grade.push(horaCheia);
+        if (horaMeia < almocoInicioStr || horaMeia >= almocoFimStr) grade.push(horaMeia);
+    }
+    return grade;
+}
+// --------------------------------------------------
 
 client.on('qr', (qr) => {
     console.log('\n==================================================');
@@ -64,12 +115,15 @@ client.on('message', async (msg) => {
     if (msg.from === NUMERO_ADMIN && msg.body.toLowerCase().includes('aviso bot')) return;
 
     const numeroCliente = msg.from;
+    
+    // VERIFICA SE O CLIENTE ESTÁ NA GELADEIRA DE SPAM
+    if (verificaSpam(numeroCliente)) return;
+
     console.log(`📩 [${numeroCliente}] disse: ${msg.body}`);
 
     if (cronometros.has(numeroCliente)) clearTimeout(cronometros.get(numeroCliente));
 
     try {
-        // A. BUSCAR DADOS DA EMPRESA E VERIFICAR ASSINATURA
         const { data: empresa } = await supabase.from('empresas').select('*').eq('slug', EMPRESA_SLUG).maybeSingle();
         
         if (!empresa) {
@@ -84,7 +138,6 @@ client.on('message', async (msg) => {
             return;
         }
 
-        // B. CARREGAR SERVIÇOS, EQUIPE E TEMPOS CUSTOMIZADOS
         const { data: servicos } = await supabase.from('servicos').select('*').eq('empresa_id', empresa.id).eq('ativo', true);
         const { data: barbeiros } = await supabase.from('barbeiros').select('*').eq('empresa_id', empresa.id);
         const { data: duracoesCustom } = await supabase.from('barbeiro_servicos').select('*').eq('empresa_id', empresa.id);
@@ -97,7 +150,6 @@ client.on('message', async (msg) => {
 
         const linkSite = `https://barbearia-app-swart.vercel.app/${empresa.slug}`;
 
-        // C. PROMPT DA INTELIGÊNCIA ARTIFICIAL
         if (!historicoConversas.has(numeroCliente)) {
             historicoConversas.set(numeroCliente, [{
                 role: "system",
@@ -128,75 +180,17 @@ DIRETRIZES E REGRAS:
         const conversaAtual = historicoConversas.get(numeroCliente);
         conversaAtual.push({ role: "user", content: msg.body });
 
-        // D. DEFINIÇÃO DAS FERRAMENTAS (TOOLS)
         const ferramentas = [
-            { 
-                type: "function", 
-                function: { 
-                    name: "agendar_horario", 
-                    parameters: { 
-                        type: "object", 
-                        properties: { 
-                            nome_cliente: { type: "string" }, 
-                            nome_servico: { type: "string" }, 
-                            nome_barbeiro: { type: "string" }, 
-                            data: { type: "string" }, 
-                            hora: { type: "string" } 
-                        }, 
-                        required: ["nome_cliente", "nome_servico", "nome_barbeiro", "data", "hora"] 
-                    } 
-                } 
-            },
-            { 
-                type: "function", 
-                function: { 
-                    name: "consultar_horarios_livres", 
-                    parameters: { 
-                        type: "object", 
-                        properties: { 
-                            data: { type: "string" },
-                            nome_barbeiro: { type: "string" }
-                        }, 
-                        required: ["data", "nome_barbeiro"] 
-                    } 
-                } 
-            },
-            { 
-                type: "function", 
-                function: { 
-                    name: "cancelar_agendamento", 
-                    parameters: { 
-                        type: "object", 
-                        properties: { 
-                            data: { type: "string" } 
-                        }, 
-                        required: ["data"] 
-                    } 
-                } 
-            },
-            { 
-                type: "function", 
-                function: { 
-                    name: "remarcar_agendamento", 
-                    parameters: { 
-                        type: "object", 
-                        properties: { 
-                            data_antiga: { type: "string" }, 
-                            data_nova: { type: "string" }, 
-                            hora_nova: { type: "string" },
-                            nome_barbeiro: { type: "string" }
-                        }, 
-                        required: ["data_antiga", "data_nova", "hora_nova", "nome_barbeiro"] 
-                    } 
-                } 
-            }
+            { type: "function", function: { name: "agendar_horario", parameters: { type: "object", properties: { nome_cliente: { type: "string" }, nome_servico: { type: "string" }, nome_barbeiro: { type: "string" }, data: { type: "string" }, hora: { type: "string" } }, required: ["nome_cliente", "nome_servico", "nome_barbeiro", "data", "hora"] } } },
+            { type: "function", function: { name: "consultar_horarios_livres", parameters: { type: "object", properties: { data: { type: "string" }, nome_barbeiro: { type: "string" } }, required: ["data", "nome_barbeiro"] } } },
+            { type: "function", function: { name: "cancelar_agendamento", parameters: { type: "object", properties: { data: { type: "string" } }, required: ["data"] } } },
+            { type: "function", function: { name: "remarcar_agendamento", parameters: { type: "object", properties: { data_antiga: { type: "string" }, data_nova: { type: "string" }, hora_nova: { type: "string" }, nome_barbeiro: { type: "string" } }, required: ["data_antiga", "data_nova", "hora_nova", "nome_barbeiro"] } } }
         ];
 
         const respostaIA = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: conversaAtual, tools: ferramentas });
         const mensagemIA = respostaIA.choices[0].message;
         conversaAtual.push(mensagemIA);
 
-        // E. PROCESSAMENTO DAS FUNÇÕES
         if (mensagemIA.tool_calls?.length > 0) {
             for (const toolCall of mensagemIA.tool_calls) {
                 const args = JSON.parse(toolCall.function.arguments);
@@ -227,7 +221,8 @@ DIRETRIZES E REGRAS:
 
                     const horasOcupadas = (ocupados || []).map(a => new Date(a.data_hora_inicio).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }));
                     
-                    const gradeHorarios = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00', '18:30', '19:00'];
+                    // NOVA IMPLEMENTAÇÃO: Lê o expediente e o almoço do barbeiro e cria a grade limpa
+                    const gradeHorarios = gerarGradeDeHorarios(barbeiroAlvo);
                     const disponiveis = gradeHorarios.filter(h => !horasOcupadas.includes(h));
 
                     conversaAtual.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ barbeiro: barbeiroAlvo.nome, disponiveis }) });
@@ -317,6 +312,15 @@ DIRETRIZES E REGRAS:
                     if (!barbeiroAlvo) {
                         conversaAtual.push({ role: "tool", tool_call_id: toolCall.id, content: "Erro: Barbeiro não localizado." });
                         await msg.reply("Com qual barbeiro você deseja agendar?");
+                        continue;
+                    }
+                    
+                    // TRAVA DE SEGURANÇA NO AGENDAMENTO PARA NÃO MARCAR NO ALMOÇO
+                    const almocoInicio = barbeiroAlvo.almoco_inicio || '12:00';
+                    const almocoFim = barbeiroAlvo.almoco_fim || '13:00';
+                    if (args.hora >= almocoInicio && args.hora < almocoFim) {
+                        conversaAtual.push({ role: "tool", tool_call_id: toolCall.id, content: "Erro: Horário de Almoço." });
+                        await msg.reply(`Neste horário o profissional ${barbeiroAlvo.nome} está em horário de almoço/pausa. Por favor, escolha outro horário.`);
                         continue;
                     }
 
