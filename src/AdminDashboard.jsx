@@ -6,7 +6,11 @@ const PALETAS = {
   dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17' },
   esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234' },
   rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E' },
-  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759' }
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759' },
+  cyber: { primary: '#06B6D4', bright: '#22D3EE', accent: '#3B82F6', bg1: '#030712', bg2: '#081225', bg3: '#0F1E38' },
+  ametista: { primary: '#A855F7', bright: '#C084FC', accent: '#9333EA', bg1: '#170F1E', bg2: '#23152D', bg3: '#2E1C3C' },
+  imperial: { primary: '#D4AF37', bright: '#E5E7EB', accent: '#A67C00', bg1: '#0A0807', bg2: '#14110E', bg3: '#1F1A15' },
+  vintage: { primary: '#F9FAFB', bright: '#3B82F6', accent: '#EF4444', bg1: '#050505', bg2: '#121212', bg3: '#1E1E1E' }
 };
 
 export default function AdminDashboard() {
@@ -42,7 +46,6 @@ export default function AdminDashboard() {
   const [formTransacao, setFormTransacao] = useState({ tipo: 'SAIDA', descricao: '', valor: '' });
   
   const [membroEditandoId, setMembroEditandoId] = useState(null);
-  // NOVO: Adicionado campos de expediente e almoço no formulário da equipe
   const [formEquipe, setFormEquipe] = useState({ 
     nome: '', telefone: '', email: '', 
     expediente_inicio: '09:00', expediente_fim: '18:00', 
@@ -532,9 +535,9 @@ export default function AdminDashboard() {
                     <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Cores da sua Página</h2>
                     <p className="text-[12px] text-[var(--paper-dim)] mb-6">Escolha a paleta de cores para personalizar a experiência dos clientes.</p>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {Object.keys(PALETAS).map(chave => (
-                         <div key={chave} onClick={() => salvarTema(chave)} className={`p-5 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === chave || (!dadosEmpresa?.tema && chave === 'dourado') ? 'border-[var(--brass)] bg-[var(--brass)]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[var(--brass)]/50'}`}>
+                         <div key={chave} onClick={() => salvarTema(chave)} className={`p-4 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === chave || (!dadosEmpresa?.tema && chave === 'dourado') ? 'border-[var(--brass)] bg-[var(--brass)]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[var(--brass)]/50'}`}>
                            <div className="flex items-center gap-3 mb-2">
                              <div className="w-5 h-5 rounded-full" style={{backgroundColor: PALETAS[chave].primary}}></div>
                              <span className="font-bold text-white text-sm capitalize">{chave}</span>
@@ -944,7 +947,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL SERVICO (Mantido) */}
+        {/* MODAL SERVICO */}
         {modalServico && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
@@ -982,7 +985,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL DETALHES FINANCEIROS (Mantido) */}
+        {/* MODAL DETALHES FINANCEIROS */}
         {modalDetalhes && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-2xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -1018,7 +1021,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* MODAL TRANSACAO (Mantido) */}
+        {/* MODAL TRANSACAO */}
         {modalTransacao && perfilUsuario?.cargo === 'dono' && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 animate-fade-in backdrop-blur-sm">
             <div className="bg-[var(--leather-2)] border border-[var(--line)] p-6 rounded-lg w-full max-w-md shadow-2xl">
