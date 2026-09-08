@@ -16,7 +16,7 @@ const PALETAS = {
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const inputLogoRef = useRef(null);
-  const inputFundoRef = useRef(null); // NOVO REF PARA O FUNDO
+  const inputFundoRef = useRef(null); 
   
   const [perfilUsuario, setPerfilUsuario] = useState(null);
   const [dadosEmpresa, setDadosEmpresa] = useState(null);
@@ -34,7 +34,7 @@ export default function AdminDashboard() {
   const [duracoesEquipe, setDuracoesEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const [uploadingFundo, setUploadingFundo] = useState(false); // ESTADO PARA LOADING DO FUNDO
+  const [uploadingFundo, setUploadingFundo] = useState(false); 
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalBloqueio, setModalBloqueio] = useState(false);
@@ -200,11 +200,10 @@ export default function AdminDashboard() {
 
   async function removerBloqueio(id) {
     const confirmar = window.confirm("Tem certeza que deseja liberar / desbloquear este horário?");
-    if (!confirmar) return; // Se o usuário cancelar, não faz nada.
+    if (!confirmar) return; 
 
-    setLoading(true); // Mostra que está carregando na tela
+    setLoading(true); 
 
-    // Tenta deletar no banco
     const { error } = await supabase.from('agendamentos').delete().eq('id', id);
     
     if (error) {
@@ -212,7 +211,7 @@ export default function AdminDashboard() {
       setLoading(false);
     } else {
       alert("Horário liberado com sucesso!");
-      await carregarAgenda(); // Força recarregar a agenda
+      await carregarAgenda(); 
     }
   }
 
@@ -251,7 +250,6 @@ export default function AdminDashboard() {
     alert('Logo atualizada com sucesso!');
   }
 
-  // --- NOVA FUNÇÃO DE UPLOAD DO FUNDO ---
   async function handleUploadFundo(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -260,7 +258,7 @@ export default function AdminDashboard() {
     const fileExt = file.name.split('.').pop();
     const fileName = `fundo_${perfilUsuario.empresa_id}_${Math.random()}.${fileExt}`;
 
-    const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file); // Reaproveitando o bucket 'logos'
+    const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file); 
 
     if (uploadError) {
       alert('Erro ao enviar imagem de fundo: ' + uploadError.message);
@@ -270,7 +268,6 @@ export default function AdminDashboard() {
 
     const { data: publicData } = supabase.storage.from('logos').getPublicUrl(fileName);
     
-    // Supondo que a coluna fundo_url foi criada na tabela empresas (faremos o aviso depois)
     await supabase.from('empresas').update({ fundo_url: publicData.publicUrl }).eq('id', perfilUsuario.empresa_id);
     setDadosEmpresa({ ...dadosEmpresa, fundo_url: publicData.publicUrl });
     
@@ -526,8 +523,14 @@ export default function AdminDashboard() {
           
           <div className="hidden md:block mt-auto pt-4 border-t border-[var(--line)] text-xs text-[var(--paper-dim)]">
             <div className="mb-3 px-3 font-mono text-[10px] text-[var(--brass)] uppercase tracking-widest flex justify-between items-center">{perfilUsuario?.nome}</div>
+            
             <button onClick={() => {navigator.clipboard.writeText(`${window.location.origin}/${dadosEmpresa?.slug}`); alert('Link copiado!')}} className="w-full text-left px-3 text-[11px] font-bold text-[var(--brass-bright)] hover:text-white transition-colors mb-3">Copiar Link</button>
-            <a href="https://wa.me/5513974211857?text=Ol%C3%A1" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-4">🚀 Assinar Sistema</a>
+            
+            <a href="https://wa.me/5513974211857?text=Ol%C3%A1" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-green-400 hover:text-green-300 transition-colors mb-3">🚀 Assinar Sistema</a>
+            
+            {/* NOVO BOTÃO DE FEEDBACK VIP */}
+            <a href="https://wa.me/5513974211857?text=Fala%20equipe%20Maggia!%20Tenho%20uma%20d%C3%BAvida%20ou%20feedback%20sobre%20o%20sistema:" target="_blank" rel="noreferrer" className="block w-full text-left px-3 text-[11px] font-bold text-[var(--paper)] hover:text-white transition-colors mb-4">💡 Sugestões ou Ajuda</a>
+            
             <button onClick={handleSair} className="hover:text-[var(--copper-bright)] transition-colors w-full text-left px-3">Sair da Conta</button>
           </div>
         </div>
