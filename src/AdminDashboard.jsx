@@ -16,6 +16,7 @@ const PALETAS = {
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const inputLogoRef = useRef(null);
+  const inputFundoRef = useRef(null); // NOVO REF PARA O FUNDO
   
   const [perfilUsuario, setPerfilUsuario] = useState(null);
   const [dadosEmpresa, setDadosEmpresa] = useState(null);
@@ -33,6 +34,7 @@ export default function AdminDashboard() {
   const [duracoesEquipe, setDuracoesEquipe] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFundo, setUploadingFundo] = useState(false); // ESTADO PARA LOADING DO FUNDO
 
   const [modalAgendamento, setModalAgendamento] = useState(false);
   const [modalBloqueio, setModalBloqueio] = useState(false);
@@ -234,6 +236,33 @@ export default function AdminDashboard() {
     
     setUploadingLogo(false);
     alert('Logo atualizada com sucesso!');
+  }
+
+  // --- NOVA FUNÇÃO DE UPLOAD DO FUNDO ---
+  async function handleUploadFundo(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setUploadingFundo(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `fundo_${perfilUsuario.empresa_id}_${Math.random()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage.from('logos').upload(fileName, file); // Reaproveitando o bucket 'logos'
+
+    if (uploadError) {
+      alert('Erro ao enviar imagem de fundo: ' + uploadError.message);
+      setUploadingFundo(false);
+      return;
+    }
+
+    const { data: publicData } = supabase.storage.from('logos').getPublicUrl(fileName);
+    
+    // Supondo que a coluna fundo_url foi criada na tabela empresas (faremos o aviso depois)
+    await supabase.from('empresas').update({ fundo_url: publicData.publicUrl }).eq('id', perfilUsuario.empresa_id);
+    setDadosEmpresa({ ...dadosEmpresa, fundo_url: publicData.publicUrl });
+    
+    setUploadingFundo(false);
+    alert('Fundo atualizado com sucesso!');
   }
 
   function abrirModalCriarEquipe() {
@@ -518,6 +547,7 @@ export default function AdminDashboard() {
               {/* ABA: APARÊNCIA */}
               {abaAtiva === 'aparencia' && perfilUsuario?.cargo === 'dono' && (
                 <div className="animate-fade-in max-w-4xl space-y-6">
+                  {/* CONFIGURAÇÃO DA LOGO */}
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6 flex flex-col sm:flex-row items-center gap-6">
                     <img src={dadosEmpresa?.logo_url || "/logomaggia.JPG"} alt="Sua Logo" className="w-24 h-24 rounded-full border-2 border-[var(--brass)] object-cover bg-white" />
                     <div className="text-center sm:text-left">
@@ -526,21 +556,56 @@ export default function AdminDashboard() {
                       
                       <input type="file" accept="image/*" ref={inputLogoRef} onChange={handleUploadLogo} className="hidden" />
                       <button onClick={() => inputLogoRef.current.click()} disabled={uploadingLogo} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] border border-[var(--brass)] bg-transparent text-[var(--brass)] cursor-pointer hover:bg-[var(--brass)]/10 transition-colors w-full sm:w-auto">
-                        {uploadingLogo ? 'Enviando...' : 'Trocar Imagem'}
+                        {uploadingLogo ? 'Enviando...' : 'Trocar Logo'}
                       </button>
                     </div>
                   </div>
 
+                  {/* NOVO: UPLOAD DE FUNDO (BACKGROUND) */}
+                  <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6 flex flex-col sm:flex-row items-center gap-6">
+                    <div className="w-24 h-24 rounded border-2 border-[var(--brass)] flex items-center justify-center bg-black overflow-hidden relative">
+                       {dadosEmpresa?.fundo_url ? (
+                           <img src={dadosEmpresa.fundo_url} alt="Fundo Customizado" className="absolute inset-0 w-full h-full object-cover opacity-60" />
+                       ) : (
+                           <span className="text-[24px]">🌌</span>
+                       )}
+                    </div>
+                    <div className="text-center sm:text-left">
+                      <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Fundo da Página</h2>
+                      <p className="text-[12px] text-[var(--paper-dim)] mb-4">Faça upload de uma foto da sua barbearia para usar de fundo. Deixe vazio para usar a imagem padrão do tema.</p>
+                      
+                      <input type="file" accept="image/*" ref={inputFundoRef} onChange={handleUploadFundo} className="hidden" />
+                      <div className="flex gap-2 justify-center sm:justify-start">
+                        <button onClick={() => inputFundoRef.current.click()} disabled={uploadingFundo} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] bg-[var(--brass)] text-[var(--leather)] cursor-pointer hover:opacity-90 transition-opacity w-full sm:w-auto">
+                          {uploadingFundo ? 'Enviando...' : 'Fazer Upload de Fundo'}
+                        </button>
+                        {dadosEmpresa?.fundo_url && (
+                          <button onClick={async () => {
+                              await supabase.from('empresas').update({ fundo_url: null }).eq('id', perfilUsuario.empresa_id);
+                              setDadosEmpresa({ ...dadosEmpresa, fundo_url: null });
+                          }} className="font-semibold text-[12.5px] px-4 py-2 rounded-[5px] border border-red-500/50 bg-transparent text-red-400 cursor-pointer hover:bg-red-900/20 transition-colors">
+                            Remover
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SELEÇÃO DE TEMAS */}
                   <div className="bg-[var(--leather-2)] border border-[var(--line)] rounded-lg p-6">
                     <h2 className="font-fraunces font-bold text-[18px] text-[var(--paper)] mb-1">Cores da sua Página</h2>
                     <p className="text-[12px] text-[var(--paper-dim)] mb-6">Escolha a paleta de cores para personalizar a experiência dos clientes.</p>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                       {Object.keys(PALETAS).map(chave => (
-                         <div key={chave} onClick={() => salvarTema(chave)} className={`p-4 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === chave || (!dadosEmpresa?.tema && chave === 'dourado') ? 'border-[var(--brass)] bg-[var(--brass)]/10 shadow-lg' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[var(--brass)]/50'}`}>
+                         <div key={chave} onClick={() => salvarTema(chave)} className={`p-4 rounded-lg border cursor-pointer transition-all ${dadosEmpresa?.tema === chave || (!dadosEmpresa?.tema && chave === 'dourado') ? 'border-[var(--brass)] bg-[var(--brass)]/10 shadow-lg scale-[1.02]' : 'border-[var(--line)] bg-[var(--leather-3)] hover:border-[var(--brass)]/50'}`}>
                            <div className="flex items-center gap-3 mb-2">
                              <div className="w-5 h-5 rounded-full" style={{backgroundColor: PALETAS[chave].primary}}></div>
                              <span className="font-bold text-white text-sm capitalize">{chave}</span>
+                           </div>
+                           <div className="text-[10px] text-[var(--paper-dim)] font-mono opacity-80 flex gap-1">
+                              <span className="w-2 h-2 rounded-full inline-block mt-[2px]" style={{backgroundColor: PALETAS[chave].bright}}></span>
+                              <span className="w-2 h-2 rounded-full inline-block mt-[2px]" style={{backgroundColor: PALETAS[chave].accent}}></span>
                            </div>
                          </div>
                       ))}

@@ -3,14 +3,14 @@ import { supabase } from './supabaseClient';
 import { useParams } from 'react-router-dom';
 
 const PALETAS = {
-  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17' },
-  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234' },
-  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E' },
-  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759' },
-  cyber: { primary: '#06B6D4', bright: '#22D3EE', accent: '#3B82F6', bg1: '#030712', bg2: '#081225', bg3: '#0F1E38' },
-  ametista: { primary: '#A855F7', bright: '#C084FC', accent: '#9333EA', bg1: '#170F1E', bg2: '#23152D', bg3: '#2E1C3C' },
-  imperial: { primary: '#E5E7EB', bright: '#D4AF37', accent: '#A67C00', bg1: '#0A0807', bg2: '#14110E', bg3: '#1F1A15' },
-  vintage: { primary: '#F9FAFB', bright: '#3B82F6', accent: '#EF4444', bg1: '#050505', bg2: '#121212', bg3: '#1E1E1E' }
+  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17', bgImg: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2074&auto=format&fit=crop' },
+  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234', bgImg: 'https://images.unsplash.com/photo-1593702295094-aea22597af65?q=80&w=2070&auto=format&fit=crop' },
+  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E', bgImg: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=2070&auto=format&fit=crop' },
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759', bgImg: 'https://images.unsplash.com/photo-1621607512214-68297480165e?q=80&w=2070&auto=format&fit=crop' },
+  cyber: { primary: '#06B6D4', bright: '#22D3EE', accent: '#3B82F6', bg1: '#030712', bg2: '#081225', bg3: '#0F1E38', bgImg: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2070&auto=format&fit=crop' },
+  ametista: { primary: '#A855F7', bright: '#C084FC', accent: '#9333EA', bg1: '#170F1E', bg2: '#23152D', bg3: '#2E1C3C', bgImg: 'https://images.unsplash.com/photo-1516975080661-46b08708a164?q=80&w=2070&auto=format&fit=crop' },
+  imperial: { primary: '#E5E7EB', bright: '#D4AF37', accent: '#A67C00', bg1: '#0A0807', bg2: '#14110E', bg3: '#1F1A15', bgImg: 'https://images.unsplash.com/photo-1507676184212-d0330a158b02?q=80&w=2070&auto=format&fit=crop' },
+  vintage: { primary: '#F9FAFB', bright: '#3B82F6', accent: '#EF4444', bg1: '#050505', bg2: '#121212', bg3: '#1E1E1E', bgImg: 'https://images.unsplash.com/photo-1534723452862-4c874018d66d?q=80&w=2070&auto=format&fit=crop' }
 };
 
 export default function Booking() {
@@ -113,6 +113,8 @@ export default function Booking() {
 
   const gerarHorarios = () => {
     const horas = [];
+    // Aqui seria ideal no futuro puxar o expediente do profissional, 
+    // mas por hora mantemos a grade de 09:00 as 19:00 no frontend
     for (let i = 9; i <= 19; i++) {
       horas.push(`${i.toString().padStart(2, '0')}:00`);
       horas.push(`${i.toString().padStart(2, '0')}:30`);
@@ -121,6 +123,8 @@ export default function Booking() {
   };
 
   const temaAtivo = PALETAS[empresa?.tema || 'dourado'];
+  // REGRA DO FUNDO: Usa o Fundo enviado pelo dono. Se não tiver, usa a imagem da paleta.
+  const imagemDeFundo = empresa?.fundo_url || temaAtivo.bgImg;
 
   const brandStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Work+Sans:wght@400;600&family=Fraunces:opsz,wght@9..144,700&display=swap');
@@ -128,10 +132,11 @@ export default function Booking() {
     :root {
       --primary: ${temaAtivo.primary};
       --bright: ${temaAtivo.bright};
+      --leather: ${temaAtivo.bg1};
     }
     
     body {
-      background-color: #0A0F16;
+      background-color: var(--leather);
       color: #EFE6D8;
       font-family: 'Work Sans', sans-serif;
     }
@@ -145,14 +150,14 @@ export default function Booking() {
     .font-serif { font-family: 'Fraunces', serif; }
     
     .bg-glass {
-      background-color: rgba(22, 19, 15, 0.95);
-      backdrop-filter: blur(12px);
+      background-color: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(16px);
     }
     
-    .bg-panel { background-color: rgba(36, 31, 23, 0.8); }
+    .bg-panel { background-color: rgba(255, 255, 255, 0.05); }
     
     .custom-input {
-      background-color: rgba(36, 31, 23, 0.8);
+      background-color: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255,255,255,0.1);
       color: white;
     }
@@ -183,7 +188,7 @@ export default function Booking() {
 
   if (sucesso) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-cover bg-center bg-blend-overlay bg-black/90" style={{ backgroundImage: `url('${temaAtivo.bgImg}')` }}>
+      <div className="min-h-screen flex items-center justify-center p-4 bg-cover bg-center bg-fixed" style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url('${imagemDeFundo}')` }}>
         <style>{brandStyles}</style>
         <div className="bg-glass border border-primary/30 p-10 rounded-xl text-center max-w-md w-full shadow-2xl">
           <img src={empresa.logo_url || "/logomaggia.JPG"} alt="Logo" className="w-16 h-16 mx-auto rounded-full border-2 border-primary object-cover shadow-lg mb-4 bg-white" />
@@ -200,7 +205,7 @@ export default function Booking() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-10 px-4 bg-cover bg-center bg-blend-overlay" style={{ backgroundImage: `url('${temaAtivo.bgImg}')`, backgroundColor: 'rgba(0,0,0,0.85)' }}>
+    <div className="min-h-screen flex flex-col items-center py-10 px-4 bg-cover bg-center bg-fixed" style={{ backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.7), rgba(0,0,0,0.95)), url('${imagemDeFundo}')` }}>
       <style>{brandStyles}</style>
       
       {/* CABEÇALHO COM LOGO DINÂMICA */}
@@ -208,13 +213,13 @@ export default function Booking() {
         <img 
           src={empresa.logo_url || "/logomaggia.JPG"} 
           alt="Logo da Barbearia" 
-          className="w-20 h-20 mx-auto rounded-full border-2 border-primary object-cover shadow-[0_0_20px_rgba(255,255,255,0.15)] mb-4 bg-white" 
+          className="w-20 h-20 mx-auto rounded-full border-2 border-primary object-cover shadow-[0_0_30px_rgba(255,255,255,0.15)] mb-4 bg-white" 
         />
         <h1 className="text-4xl font-serif text-white font-bold mb-2 tracking-wide drop-shadow-md">{empresa.nome || 'Barbearia'}</h1>
         <p className="font-mono text-primary text-xs tracking-[0.2em] uppercase drop-shadow">Reserve seu horário, chefe</p>
       </div>
 
-      <div className="w-full max-w-md border border-primary/30 rounded-xl bg-glass p-6 shadow-2xl">
+      <div className="w-full max-w-md border border-primary/30 rounded-xl bg-glass p-6 shadow-2xl backdrop-blur-md">
         
         {/* PASSO 1: SERVIÇO */}
         {step === 1 && (
