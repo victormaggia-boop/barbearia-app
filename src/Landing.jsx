@@ -250,12 +250,12 @@ export default function Landing() {
             </div>
 
             <div className="w-full md:w-auto min-w-[300px] p-8 rounded-3xl bg-white/[0.03] border border-white/10 text-center relative overflow-hidden backdrop-blur-md">
-              <p className="text-slate-400 uppercase tracking-widest text-xs font-bold mb-2">Investimento</p>
-              <div className="text-5xl font-black text-white mb-6 flex justify-center items-end gap-1">
-                <span className="text-2xl text-cyan-500">R$</span>97<span className="text-lg text-slate-500 font-normal pb-1">/mês</span>
+              <p className="text-cyan-400 uppercase tracking-widest text-xs font-bold mb-2">Acesso Exclusivo</p>
+              <div className="text-4xl font-black text-white mb-6 flex justify-center items-end gap-1">
+                Teste Grátis
               </div>
               <Link to="/cadastro" className="block w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold rounded-xl transition-all hover:scale-105 shadow-[0_0_20px_rgba(6,182,212,0.3)] hover:shadow-[0_0_40px_rgba(6,182,212,0.6)]">
-                Iniciar Teste Grátis
+                Criar Minha Conta
               </Link>
             </div>
           </div>
