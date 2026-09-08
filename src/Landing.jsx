@@ -262,7 +262,7 @@ export default function Landing() {
         </motion.div>
       </section>
       
-      {/* FOOTER */}
+      {/* FOOTEr */}
       <footer className="border-t border-white/5 mt-12 py-8 text-center text-slate-500 text-sm font-medium tracking-wide z-20 relative bg-[#030712]/50 backdrop-blur-md">
         <p>© {new Date().getFullYear()} MAGGIA TECNOLOGIA & SAAS. DESENVOLVIDO PARA O FUTURO.</p>
       </footer>
