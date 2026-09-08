@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useParams } from 'react-router-dom';
 
-cconst PALETAS = {
+const PALETAS = {
   dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17' },
   esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234' },
   rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E' },
