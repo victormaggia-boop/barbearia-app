@@ -2,11 +2,15 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { useParams } from 'react-router-dom';
 
-const PALETAS = {
-  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bgImg: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=2074&auto=format&fit=crop" },
-  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bgImg: "https://images.unsplash.com/photo-1599351431202-1e0f0137899a?q=80&w=2070&auto=format&fit=crop" },
-  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bgImg: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=2070&auto=format&fit=crop" },
-  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bgImg: "https://images.unsplash.com/photo-1621605815971-c0fc19d45a90?q=80&w=2070&auto=format&fit=crop" }
+cconst PALETAS = {
+  dourado: { primary: '#C9A24B', bright: '#E4C066', accent: '#A85C2E', bg1: '#16130F', bg2: '#1D1912', bg3: '#241F17' },
+  esmeralda: { primary: '#10B981', bright: '#34D399', accent: '#059669', bg1: '#021C16', bg2: '#042F25', bg3: '#064234' },
+  rubi: { primary: '#EF4444', bright: '#F87171', accent: '#B91C1C', bg1: '#2A0808', bg2: '#3B0B0B', bg3: '#4C0E0E' },
+  safira: { primary: '#3B82F6', bright: '#60A5FA', accent: '#1D4ED8', bg1: '#0B132B', bg2: '#111D42', bg3: '#172759' },
+  cyber: { primary: '#06B6D4', bright: '#22D3EE', accent: '#3B82F6', bg1: '#030712', bg2: '#081225', bg3: '#0F1E38' },
+  ametista: { primary: '#A855F7', bright: '#C084FC', accent: '#9333EA', bg1: '#170F1E', bg2: '#23152D', bg3: '#2E1C3C' },
+  imperial: { primary: '#D4AF37', bright: '#E5E7EB', accent: '#A67C00', bg1: '#0A0807', bg2: '#14110E', bg3: '#1F1A15' },
+  vintage: { primary: '#F9FAFB', bright: '#3B82F6', accent: '#EF4444', bg1: '#050505', bg2: '#121212', bg3: '#1E1E1E' }
 };
 
 export default function Booking() {
